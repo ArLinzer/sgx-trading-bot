@@ -1,0 +1,89 @@
+telegram:
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"       # From @BotFather on Telegram
+  chat_id: "YOUR_TELEGRAM_CHAT_ID"           # Your Telegram user or group chat ID
+
+llm:
+  model: "qwen3.5:9b"               # Fallback order: qwen3.5:9b → mistral → phi3
+  fallback_models:
+    - "mistral"
+    - "phi3"
+  ollama_host: "http://localhost:11434"
+  request_timeout: 120              # seconds — LLM calls can be slow
+
+filters:
+  min_confidence: 0.65              # Signals below this are dropped
+  min_volume_ratio: 1.2             # Must be 20% above 20-day avg volume
+  max_signals_per_session: 5        # Top N signals sent per session
+  pre_filter_top_n: 50              # Pre-filter full SGX list to top N by volume before LLM Call A
+  max_llm_select: 5                 # LLM picks at most this many tickers in Call A
+  min_turnover_sgd: 10000000        # Only consider stocks with ≥SGD 10M daily turnover (0 = disabled)
+
+scheduler:
+  timezone: "Asia/Singapore"
+  morning_scan: "08:30"
+  morning_signal: "09:00"
+  midday_refresh: "12:00"
+  afternoon_signal: "14:00"
+  eod_reminder: "16:30"
+  daily_summary: "17:15"
+
+health_check:
+  host: "0.0.0.0"
+  port: 8080
+
+logging:
+  level: "INFO"
+  rotation: "00:00"                 # Rotate at midnight
+  retention: "30 days"
+  log_dir: "data/logs"
+
+cache:
+  dir: "data/cache"
+  stock_list_ttl: 86400             # 24 hours in seconds
+
+# ---------------------------------------------------------------------------
+# External data providers — set enabled: true and paste your API key to activate
+# All providers are OFF by default so the bot works without any keys.
+# ---------------------------------------------------------------------------
+providers:
+
+  # 1. Marketaux — finance news with sentiment, interval/date filters
+  #    Sign up : https://www.marketaux.com
+  marketaux:
+    enabled: false
+    api_key: "YOUR_MARKETAUX_API_KEY"
+    limit: 20                         # articles per request
+
+  # 2. StockNewsAPI — stock & financial news JSON feed
+  #    Sign up : https://stocknewsapi.com
+  stocknewsapi:
+    enabled: false
+    api_key: "YOUR_STOCKNEWSAPI_TOKEN"
+    items: 20                         # articles per request
+
+  # 3. EODHD — financial news with sentiment, symbols, and tags
+  #    Sign up : https://eodhd.com
+  eodhd:
+    enabled: false
+    api_key: "YOUR_EODHD_API_KEY"
+    limit: 20
+
+  # 4. Marketstack — REST OHLCV (real-time + historical), SGX supported
+  #    Sign up : https://marketstack.com
+  #    NOTE    : CATEGORY=ohlcv — used for price data, not news
+  marketstack:
+    enabled: false
+    api_key: "YOUR_MARKETSTACK_API_KEY"
+
+  # 5. Finnhub — quotes, news, fundamentals, filings
+  #    Sign up : https://finnhub.io
+  finnhub:
+    enabled: false
+    api_key: "YOUR_FINNHUB_API_KEY"   # also sent as X-Finnhub-Token header
+
+  # 6. StockGeist — real-time + historical sentiment from news & social data
+  #    Sign up : https://stockgeist.ai
+  #    NOTE    : CATEGORY=sentiment — wraps score as a news headline for LLM
+  stockgeist:
+    enabled: false
+    api_key: "YOUR_STOCKGEIST_TOKEN"

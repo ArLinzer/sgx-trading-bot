@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SGX Trading Bot</title>
+<style>
+:root {
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --surface2:  #1c2230;
+  --border:    #21262d;
+  --border2:   #30363d;
+  --text:      #e6edf3;
+  --muted:     #8b949e;
+  --accent:    #1f6feb;
+  --buy:       #2ea043;
+  --buy-bg:    rgba(46,160,67,.12);
+  --sell:      #da3633;
+  --sell-bg:   rgba(218,54,51,.12);
+  --hold:      #e3b341;
+  --hold-bg:   rgba(227,179,65,.12);
+  --watch:     #388bfd;
+  --watch-bg:  rgba(56,139,253,.12);
+  --radius:    8px;
+  --shadow:    0 2px 8px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── navbar ── */
+nav{display:flex;align-items:center;gap:12px;padding:0 20px;height:52px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;z-index:100}
+nav .logo{font-weight:700;font-size:15px;letter-spacing:.3px;white-space:nowrap}
+nav .logo span{color:var(--accent)}
+.ws-dot{width:8px;height:8px;border-radius:50%;background:#555;flex-shrink:0;transition:background .3s}
+.ws-dot.connected{background:var(--buy)}
+.ws-dot.connecting{background:var(--hold);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.ws-label{font-size:12px;color:var(--muted)}
+nav .spacer{flex:1}
+.tg-wrap{display:flex;align-items:center;gap:8px;font-size:13px}
+.toggle{position:relative;width:40px;height:22px;cursor:pointer}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:#30363d;border-radius:22px;transition:.25s}
+.toggle-slider:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s}
+.toggle input:checked+.toggle-slider{background:var(--accent)}
+.toggle input:checked+.toggle-slider:before{transform:translateX(18px)}
+.nav-divider{width:1px;height:22px;background:var(--border2);flex-shrink:0}
+.btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background .15s,border-color .15s;white-space:nowrap}
+.btn:hover{background:#21262d;border-color:var(--accent)}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#388bfd}
+.btn.danger{background:rgba(218,54,51,.15);border-color:var(--sell);color:var(--sell)}
+.btn.danger:hover{background:rgba(218,54,51,.28)}
+.btn.success{background:rgba(46,160,67,.15);border-color:var(--buy);color:var(--buy)}
+.btn.success:hover{background:rgba(46,160,67,.28)}
+.btn.spinning .icon{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── layout ── */
+.layout{display:flex;flex:1;overflow:hidden}
+
+/* ── sidebar ── */
+aside{width:270px;min-width:270px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.aside-header{padding:14px 16px 10px;font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border)}
+.search-wrap{padding:10px 12px;position:relative}
+.search-wrap input{width:100%;padding:7px 10px 7px 32px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s}
+.search-wrap input:focus{border-color:var(--accent)}
+.search-wrap .search-icon{position:absolute;left:20px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none}
+.autocomplete{position:absolute;top:calc(100% - 4px);left:12px;right:12px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;z-index:200;overflow:hidden;box-shadow:var(--shadow);display:none}
+.autocomplete.open{display:block}
+.ac-item{padding:8px 12px;font-size:13px;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
+.ac-item:hover{background:var(--surface)}
+.ac-item .ac-ticker{font-weight:600;color:var(--accent);font-size:12px;flex-shrink:0;margin-left:8px}
+.ac-item .ac-name{color:var(--muted);font-size:12px;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+.wl-list{flex:1;overflow-y:auto;padding:0 0 8px}
+.wl-empty{padding:20px 16px;text-align:center;color:var(--muted);font-size:13px;line-height:1.6}
+.wl-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);transition:background .1s}
+.wl-item:hover{background:var(--surface2)}
+.wl-ticker{font-weight:700;font-size:13px;color:var(--accent);min-width:42px}
+.wl-name{flex:1;font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;padding:2px 4px;border-radius:4px;line-height:1;transition:color .1s,background .1s}
+.wl-remove:hover{color:var(--sell);background:var(--sell-bg)}
+.wl-footer{padding:10px 12px;border-top:1px solid var(--border)}
+
+/* ── main ── */
+main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.tabs-row{display:flex;align-items:stretch;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
+.tabs{display:flex;gap:0;flex:1}
+.tab{padding:12px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;transition:color .15s,border-color .15s;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.tab .count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;border-radius:9px;background:var(--surface2);color:var(--muted);font-size:11px;padding:0 5px;margin-left:6px}
+.tab.active .count{background:var(--accent);color:#fff}
+.tab-actions{display:flex;align-items:center;padding:0 14px;gap:8px;flex-shrink:0}
+
+/* status bar */
+.status-bar{display:flex;align-items:center;gap:8px;padding:6px 20px;font-size:12px;color:var(--muted);background:var(--bg);border-bottom:1px solid var(--border);min-height:30px;flex-shrink:0}
+.status-bar .spinner{display:none;width:12px;height:12px;border:2px solid var(--border2);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+.status-bar.busy .spinner{display:block}
+
+/* signals grid */
+.signals-wrap{flex:1;overflow-y:auto;padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-content:start}
+.empty-state{grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-state .icon{font-size:40px;margin-bottom:12px}
+.empty-state p{font-size:14px;line-height:1.6}
+
+/* signal card */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);animation:fadeIn .25s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.card.new{animation:newCard .4s ease}
+@keyframes newCard{0%{opacity:0;transform:translateY(-8px);box-shadow:0 0 0 2px var(--accent)}50%{box-shadow:0 0 0 2px var(--accent)}100%{opacity:1;transform:translateY(0);box-shadow:var(--shadow)}}
+.card-top{height:3px}
+.card.buy .card-top{background:var(--buy)}.card.sell .card-top{background:var(--sell)}.card.hold .card-top{background:var(--hold)}.card.watch .card-top{background:var(--watch)}
+.card-head{display:flex;align-items:flex-start;gap:8px;padding:12px 14px 8px}
+.action-badge{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;letter-spacing:.3px;white-space:nowrap}
+.card.buy .action-badge{background:var(--buy-bg);color:var(--buy)}.card.sell .action-badge{background:var(--sell-bg);color:var(--sell)}.card.hold .action-badge{background:var(--hold-bg);color:var(--hold)}.card.watch .action-badge{background:var(--watch-bg);color:var(--watch)}
+.card-title{flex:1;min-width:0}.card-ticker{font-size:16px;font-weight:700}.card-name{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-meta{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0}
+.source-badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.5px}
+.source-badge.watchlist{background:rgba(31,111,235,.2);color:var(--accent)}.source-badge.scheduled{background:var(--surface2);color:var(--muted)}
+.card-time{font-size:11px;color:var(--muted)}
+.card-prices{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.price-cell{padding:8px 10px;text-align:center}.price-cell+.price-cell{border-left:1px solid var(--border)}
+.price-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
+.price-val{font-size:13px;font-weight:600}.price-pct{font-size:10px;margin-top:1px}.price-pct.pos{color:var(--buy)}.price-pct.neg{color:var(--sell)}
+.conf-row{padding:8px 14px;display:flex;align-items:center;gap:10px}
+.conf-bar-wrap{flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden}
+.conf-bar{height:100%;border-radius:2px;transition:width .4s}
+.card.buy .conf-bar{background:var(--buy)}.card.sell .conf-bar{background:var(--sell)}.card.hold .conf-bar{background:var(--hold)}.card.watch .conf-bar{background:var(--watch)}
+.conf-label{font-size:12px;font-weight:600;min-width:34px;text-align:right}
+.strategy-row{padding:0 14px 8px;display:flex;gap:6px;flex-wrap:wrap}
+.strategy-tag{font-size:11px;padding:2px 8px;border-radius:4px;background:var(--surface2);color:var(--muted);text-transform:capitalize;border:1px solid var(--border2)}
+.card-reasoning{padding:8px 14px 10px;font-size:12px;color:var(--muted);line-height:1.55;border-top:1px solid var(--border)}
+.card-footer{padding:6px 14px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
+.card-footer .news-src{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+
+/* ── Config panel ── */
+.config-panel{flex:1;overflow-y:auto;padding:20px;display:none}
+.config-panel.active{display:block}
+.config-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
+.config-section-header{padding:11px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.config-section-title{font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.6px;flex:1}
+.restart-badge{font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(227,179,65,.15);color:var(--hold);border:1px solid rgba(227,179,65,.3)}
+.config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;background:var(--border)}
+.config-field{display:flex;flex-direction:column;gap:5px;padding:12px 16px;background:var(--surface)}
+.config-label{font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:6px}
+.config-input,.config-select{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s;font-family:inherit}
+.config-input:focus,.config-select:focus{border-color:var(--accent)}
+.config-input[type=number]{font-variant-numeric:tabular-nums}
+.config-hint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:1px}
+/* password field */
+.pw-wrap{position:relative;display:flex;align-items:center}
+.pw-wrap .config-input{padding-right:34px}
+.pw-eye{position:absolute;right:9px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:2px;transition:color .1s}
+.pw-eye:hover{color:var(--text)}
+/* range slider */
+.range-wrap{display:flex;align-items:center;gap:10px}
+.range-wrap input[type=range]{flex:1;height:4px;cursor:pointer;accent-color:var(--accent)}
+.range-val{font-size:13px;font-weight:600;color:var(--text);min-width:38px;text-align:right}
+/* provider table */
+.provider-table{width:100%;border-collapse:collapse}
+.provider-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:8px 16px;text-align:left;border-bottom:1px solid var(--border)}
+.provider-table td{padding:8px 16px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px}
+.provider-table tr:last-child td{border-bottom:none}
+.provider-table .pname{font-weight:600;color:var(--text);width:130px}
+.provider-table .penabled{width:56px}
+.provider-table .plimit{width:80px}
+/* config save bar */
+.config-save-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
+.config-save-note{font-size:11px;color:var(--muted);flex:1}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+@media(max-width:700px){
+  aside{width:220px;min-width:220px}
+  .signals-wrap{grid-template-columns:1fr;padding:10px}
+  .config-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Navbar ── -->
+<nav>
+  <div class="logo">📈 <span>SGX</span> Trading Bot</div>
+  <div class="ws-dot" id="wsDot"></div>
+  <div class="ws-label" id="wsLabel">Connecting…</div>
+  <div class="spacer"></div>
+  <div class="tg-wrap">
+    <span>Telegram</span>
+    <label class="toggle" title="Send watchlist signals to Telegram">
+      <input type="checkbox" id="tgToggle">
+      <span class="toggle-slider"></span>
+    </label>
+  </div>
+  <div class="nav-divider"></div>
+  <button class="btn danger" id="stopBtn" title="Stop all bot activity">
+    <span>⏹</span> Stop Bot
+  </button>
+</nav>
+
+<!-- ── Body ── -->
+<div class="layout">
+
+  <!-- ── Sidebar ── -->
+  <aside>
+    <div class="aside-header">Watchlist</div>
+    <div class="search-wrap" id="searchWrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="searchInput" placeholder="Search ticker or name…" autocomplete="off">
+      <div class="autocomplete" id="acDropdown"></div>
+    </div>
+    <div class="wl-list" id="wlList">
+      <div class="wl-empty">No stocks in watchlist.<br>Search above to add one.</div>
+    </div>
+    <div class="wl-footer">
+      <div style="font-size:11px;color:var(--muted);text-align:center" id="wlFooter">0 stocks · analysed hourly</div>
+    </div>
+  </aside>
+
+  <!-- ── Main ── -->
+  <main>
+    <!-- Tabs row -->
+    <div class="tabs-row">
+      <div class="tabs">
+        <div class="tab active" data-tab="all">All Signals <span class="count" id="cntAll">0</span></div>
+        <div class="tab" data-tab="watchlist">Watchlist <span class="count" id="cntWl">0</span></div>
+        <div class="tab" data-tab="scheduled">Scheduled <span class="count" id="cntSched">0</span></div>
+        <div class="tab" data-tab="config">⚙ Config</div>
+      </div>
+      <div class="tab-actions">
+        <button class="btn primary" id="analyzeBtn"          style="display:none"><span class="icon">▶</span> Analyse Now</button>
+        <button class="btn"         id="refreshScheduledBtn" style="display:none"><span class="icon">🔄</span> Refresh Now</button>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar" id="statusBar">
+      <div class="spinner"></div>
+      <span id="statusMsg">Ready</span>
+    </div>
+
+    <!-- Signals grid (hidden when Config tab active) -->
+    <div class="signals-wrap" id="signalsGrid">
+      <div class="empty-state">
+        <div class="icon">📊</div>
+        <p>No signals yet.<br>Signals appear here as the bot runs.</p>
+      </div>
+    </div>
+
+    <!-- ── Config Panel ── -->
+    <div class="config-panel" id="configPanel">
+
+      <!-- Telegram -->
+      <div class="config-section">
+        <div class="config-section-header">
+          <span class="config-section-title">📨 Telegram</span>
+        </div>
+        <div class="config-grid">
+          <div class="config-field">
+            <label class="config-label">Bot Token</label>
+            <div class="pw-wrap">
+              <input class="config-input" data-path="telegram.bot_token" type="password" placeholder="From @BotFather">
+              <button class="pw-eye" type="button" data-target="telegram.bot_token">👁</button>
+            </div>
+            <div class="config-hint">Get from @BotFather on Telegram</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Chat ID</label>
+            <input class="config-input" data-path="telegram.chat_id" type="text" placeholder="Your chat or group ID">
+            <div class="config-hint">Get from @userinfobot</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LLM -->
+      <div class="config-section">
+        <div class="config-section-header">
+          <span class="config-section-title">🤖 LLM / Ollama</span>
+          <span class="restart-badge">⚠ Restart to apply</span>
+        </div>
+        <div class="config-grid">
+          <div class="config-field">
+            <label class="config-label">Primary Model</label>
+            <input class="config-input" data-path="llm.model" type="text" placeholder="qwen3.5:9b">
+            <div class="config-hint">Must be pulled in Ollama</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Fallback Models</label>
+            <input class="config-input" data-path="llm.fallback_models" data-type="csv-array" type="text" placeholder="mistral, phi3">
+            <div class="config-hint">Comma-separated, tried in order</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Ollama Host</label>
+            <input class="config-input" data-path="llm.ollama_host" type="text" placeholder="http://localhost:11434">
+          </div>
+          <div class="config-field">
+            <label class="config-label">Request Timeout (s)</label>
+            <input class="config-input" data-path="llm.request_timeout" data-type="number" type="number" min="10" max="600">
+            <div class="config-hint">LLM calls can be slow — allow 60–300 s</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="config-section">
+        <div class="config-section-header">
+          <span class="config-section-title">🎯 Signal Filters</span>
+          <span style="font-size:11px;color:var(--buy);margin-left:4px">✓ Live — no restart needed</span>
+        </div>
+        <div class="config-grid">
+          <div class="config-field">
+            <label class="config-label">Min Confidence</label>
+            <div class="range-wrap">
+              <input type="range" data-path="filters.min_confidence" data-type="float"
+                     min="0" max="1" step="0.01"
+                     oninput="this.nextElementSibling.textContent=Math.round(this.value*100)+'%'">
+              <span class="range-val">65%</span>
+            </div>
+            <div class="config-hint">Signals below this threshold are dropped</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Min Volume Ratio</label>
+            <input class="config-input" data-path="filters.min_volume_ratio" data-type="float" type="number" min="0.1" max="10" step="0.1">
+            <div class="config-hint">Must be N× above 20-day avg volume</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Max Signals / Session</label>
+            <input class="config-input" data-path="filters.max_signals_per_session" data-type="int" type="number" min="1" max="20">
+            <div class="config-hint">Top N signals sent per session</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Pre-filter Top N</label>
+            <input class="config-input" data-path="filters.pre_filter_top_n" data-type="int" type="number" min="10" max="500">
+            <div class="config-hint">Narrow SGX list to top N by turnover before LLM</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Max LLM Select</label>
+            <input class="config-input" data-path="filters.max_llm_select" data-type="int" type="number" min="1" max="50">
+            <div class="config-hint">LLM picks at most this many tickers</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Min Turnover SGD</label>
+            <input class="config-input" data-path="filters.min_turnover_sgd" data-type="int" type="number" min="0" step="1000000">
+            <div class="config-hint">Daily SGD turnover floor (0 = disabled)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scheduler -->
+      <div class="config-section">
+        <div class="config-section-header">
+          <span class="config-section-title">🕐 Scheduler</span>
+          <span class="restart-badge">⚠ Restart to apply</span>
+        </div>
+        <div class="config-grid">
+          <div class="config-field">
+            <label class="config-label">Timezone</label>
+            <input class="config-input" data-path="scheduler.timezone" type="text" placeholder="Asia/Singapore">
+          </div>
+          <div class="config-field">
+            <label class="config-label">Morning Scan</label>
+            <input class="config-input" data-path="scheduler.morning_scan" type="time">
+            <div class="config-hint">Stock selection (Call A)</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Morning Signal</label>
+            <input class="config-input" data-path="scheduler.morning_signal" type="time">
+            <div class="config-hint">Signal generation + Telegram send</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Midday Refresh</label>
+            <input class="config-input" data-path="scheduler.midday_refresh" type="time">
+          </div>
+          <div class="config-field">
+            <label class="config-label">Afternoon Signal</label>
+            <input class="config-input" data-path="scheduler.afternoon_signal" type="time">
+          </div>
+          <div class="config-field">
+            <label class="config-label">EOD Reminder</label>
+            <input class="config-input" data-path="scheduler.eod_reminder" type="time">
+            <div class="config-hint">Sell reminder before market close</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Daily Summary</label>
+            <input class="config-input" data-path="scheduler.daily_summary" type="time">
+          </div>
+        </div>
+      </div>
+
+      <!-- Data Providers -->
+      <div class="config-section">
+        <div class="config-section-header">
+          <span class="config-section-title">🔌 Data Providers</span>
+          <span class="restart-badge">⚠ Restart to apply</span>
+        </div>
+        <table class="provider-table">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th style="text-align:center">On</th>
+              <th>API Key</th>
+              <th>Limit</th>
+            </tr>
+          </thead>
+          <tbody id="providerRows"><!-- populated by JS --></tbody>
+        </table>
+      </div>
+
+      <!-- Logging -->
+      <div class="config-section">
+        <div class="config-section-header">
+          <span class="config-section-title">📋 Logging</span>
+          <span class="restart-badge">⚠ Restart to apply</span>
+        </div>
+        <div class="config-grid">
+          <div class="config-field">
+            <label class="config-label">Log Level</label>
+            <select class="config-select" data-path="logging.level">
+              <option value="DEBUG">DEBUG</option>
+              <option value="INFO">INFO</option>
+              <option value="WARNING">WARNING</option>
+              <option value="ERROR">ERROR</option>
+            </select>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Log Directory</label>
+            <input class="config-input" data-path="logging.log_dir" type="text" placeholder="data/logs">
+          </div>
+          <div class="config-field">
+            <label class="config-label">Rotation</label>
+            <input class="config-input" data-path="logging.rotation" type="text" placeholder="00:00">
+            <div class="config-hint">Time or size e.g. "00:00" or "100 MB"</div>
+          </div>
+          <div class="config-field">
+            <label class="config-label">Retention</label>
+            <input class="config-input" data-path="logging.retention" type="text" placeholder="30 days">
+          </div>
+        </div>
+      </div>
+
+      <!-- Save bar -->
+      <div class="config-save-bar">
+        <span class="config-save-note">⚠ Saving rewrites config.yaml — inline comments will be removed.<br>Fields marked "Restart to apply" take effect after restarting the bot.</span>
+        <button class="btn primary" id="saveConfigBtn"><span class="icon">💾</span> Save Configuration</button>
+      </div>
+    </div><!-- /config-panel -->
+
+  </main>
+</div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   State
+────────────────────────────────────────────────────────────── */
+const state = {
+  signals:    [],
+  watchlist:  [],
+  settings:   { telegram_enabled: true, watchlist_interval_hours: 1 },
+  activeTab:  'all',
+  ws:         null,
+  wsRetry:    0,
+  acResults:  [],
+  analyzing:  false,
+  refreshing: false,
+  botStopped: false,
+  configLoaded: false,
+  status: {
+    all:       { msg: 'Ready', busy: false },
+    watchlist: { msg: 'Ready', busy: false },
+    scheduled: { msg: 'No scheduled run yet', busy: false },
+    config:    { msg: 'Config', busy: false },
+  },
+};
+
+const $ = id => document.getElementById(id);
+
+/* ──────────────────────────────────────────────────────────────
+   Status bar — tab-aware
+────────────────────────────────────────────────────────────── */
+function setStatus(msg, busy = false, tab = null) {
+  const t = tab || state.activeTab;
+  state.status[t] = { msg, busy };
+  if (!tab) state.status.all = { msg, busy };
+  syncStatusBar();
+}
+function setScheduledStatus(msg, busy = false) {
+  state.status.scheduled = { msg, busy };
+  syncStatusBar();
+}
+function syncStatusBar() {
+  const s = state.status[state.activeTab] || state.status.all;
+  $('statusMsg').textContent = s.msg || '';
+  $('statusBar').classList.toggle('busy', !!s.busy);
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Tab switching
+────────────────────────────────────────────────────────────── */
+function syncTabUI() {
+  const t = state.activeTab;
+  $('analyzeBtn').style.display          = t === 'watchlist' ? 'inline-flex' : 'none';
+  $('refreshScheduledBtn').style.display = t === 'scheduled' ? 'inline-flex' : 'none';
+  const isConfig = t === 'config';
+  $('signalsGrid').style.display  = isConfig ? 'none'  : '';
+  $('configPanel').classList.toggle('active', isConfig);
+  if (isConfig && !state.configLoaded) loadConfig();
+  syncStatusBar();
+}
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    state.activeTab = tab.dataset.tab;
+    if (tab.dataset.tab !== 'config') renderSignals();
+    syncTabUI();
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Utilities
+────────────────────────────────────────────────────────────── */
+function fmtTime(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso), now = new Date(), diff = (now - d) / 1000;
+    if (diff < 60)   return 'just now';
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return d.toLocaleDateString();
+  } catch { return ''; }
+}
+function fmtPrice(p) { return p == null ? '—' : `S$${Number(p).toFixed(3)}`; }
+function fmtPct(entry, price) {
+  if (entry == null || price == null) return '';
+  const pct = (price - entry) / entry * 100;
+  return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+}
+function actionClass(a) { return {BUY:'buy',SELL:'sell',HOLD:'hold',WATCH:'watch'}[a]||'watch'; }
+function actionEmoji(a) { return {BUY:'🟢',SELL:'🔴',HOLD:'🟡',WATCH:'👀'}[a]||'⚪'; }
+
+/* ──────────────────────────────────────────────────────────────
+   Signal cards
+────────────────────────────────────────────────────────────── */
+function renderCard(sig, isNew = false) {
+  const cls = actionClass(sig.action), emoji = actionEmoji(sig.action);
+  const hasPrices = sig.entry_price != null;
+  const src = sig.ui_source === 'watchlist' ? 'watchlist' : 'scheduled';
+  const srcLbl = src === 'watchlist' ? '👁 Watchlist' : '🕐 Scheduled';
+
+  const priceCells = hasPrices ? `
+    <div class="card-prices">
+      <div class="price-cell"><div class="price-label">Entry</div><div class="price-val">${fmtPrice(sig.entry_price)}</div></div>
+      <div class="price-cell"><div class="price-label">Target</div><div class="price-val">${fmtPrice(sig.target_price)}</div><div class="price-pct pos">${fmtPct(sig.entry_price,sig.target_price)}</div></div>
+      <div class="price-cell"><div class="price-label">Stop</div><div class="price-val">${fmtPrice(sig.stop_loss)}</div><div class="price-pct neg">${fmtPct(sig.entry_price,sig.stop_loss)}</div></div>
+      <div class="price-cell"><div class="price-label">Conf</div><div class="price-val">${Math.round((sig.confidence||0)*100)}%</div></div>
+    </div>` : `
+    <div class="card-prices">
+      <div class="price-cell" style="grid-column:1/-1"><div class="price-label">Confidence</div><div class="price-val">${Math.round((sig.confidence||0)*100)}%</div></div>
+    </div>`;
+
+  const div = document.createElement('div');
+  div.className = `card ${cls}${isNew ? ' new' : ''}`;
+  div.dataset.ticker = sig.ticker;
+  div.dataset.source = sig.ui_source || 'scheduled';
+  div.innerHTML = `
+    <div class="card-top"></div>
+    <div class="card-head">
+      <div><div class="action-badge">${emoji} ${sig.action}</div></div>
+      <div class="card-title">
+        <div class="card-ticker">${sig.ticker}</div>
+        <div class="card-name">${sig.name||''}</div>
+      </div>
+      <div class="card-meta">
+        <span class="source-badge ${src}">${srcLbl}</span>
+        <span class="card-time">${fmtTime(sig.received_at)}</span>
+      </div>
+    </div>
+    ${priceCells}
+    <div class="conf-row">
+      <div class="conf-bar-wrap"><div class="conf-bar" style="width:${Math.round((sig.confidence||0)*100)}%"></div></div>
+      <span class="conf-label">${Math.round((sig.confidence||0)*100)}%</span>
+    </div>
+    ${sig.strategy ? `<div class="strategy-row"><span class="strategy-tag">${sig.strategy.replace(/_/g,' ')}</span></div>` : ''}
+    ${sig.reasoning ? `<div class="card-reasoning">${sig.reasoning}</div>` : ''}
+    ${sig.news_sources?.length ? `<div class="card-footer"><span>⚡</span><span class="news-src">${sig.news_sources.join(' · ')}</span></div>` : ''}
+  `;
+  return div;
+}
+
+function filteredSignals() {
+  if (state.activeTab === 'watchlist')  return state.signals.filter(s => s.ui_source === 'watchlist');
+  if (state.activeTab === 'scheduled') return state.signals.filter(s => s.ui_source !== 'watchlist');
+  return state.signals;
+}
+
+function renderSignals() {
+  const grid = $('signalsGrid'), list = filteredSignals();
+  updateCounts();
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="icon">📊</div><p>
+      No ${state.activeTab === 'all' ? '' : state.activeTab + ' '}signals yet.<br>
+      ${state.activeTab === 'watchlist' ? 'Add stocks to the watchlist and click <b>Analyse Now</b>.'
+        : state.activeTab === 'scheduled' ? 'Click <b>Refresh Now</b> or wait for the next scheduled run.'
+        : 'Signals will appear here when the bot runs.'}</p></div>`;
+    return;
+  }
+  grid.innerHTML = '';
+  list.forEach(sig => grid.appendChild(renderCard(sig)));
+}
+
+function prependSignal(sig) {
+  state.signals.unshift(sig);
+  if (state.signals.length > 200) state.signals.pop();
+  const list = filteredSignals();
+  if (!list.includes(sig)) { updateCounts(); return; }
+  const grid = $('signalsGrid');
+  grid.querySelector('.empty-state')?.remove();
+  grid.insertBefore(renderCard(sig, true), grid.firstChild);
+  updateCounts();
+}
+
+function updateCounts() {
+  $('cntAll').textContent   = state.signals.length;
+  $('cntWl').textContent    = state.signals.filter(s => s.ui_source === 'watchlist').length;
+  $('cntSched').textContent = state.signals.filter(s => s.ui_source !== 'watchlist').length;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Watchlist sidebar
+────────────────────────────────────────────────────────────── */
+function renderWatchlist() {
+  const list = $('wlList'), n = state.watchlist.length;
+  const footer = $('wlFooter');
+  if (!footer.textContent.includes('last run'))
+    footer.textContent = `${n} stock${n===1?'':'s'} · analysed hourly`;
+  else
+    footer.textContent = footer.textContent.replace(/^\d+ stock[s]?/, `${n} stock${n===1?'':'s'}`);
+  if (!n) { list.innerHTML = `<div class="wl-empty">No stocks in watchlist.<br>Search above to add one.</div>`; return; }
+  list.innerHTML = '';
+  state.watchlist.forEach(w => {
+    const div = document.createElement('div');
+    div.className = 'wl-item';
+    div.innerHTML = `<span class="wl-ticker">${w.ticker}</span><span class="wl-name" title="${w.name}">${w.name}</span><button class="wl-remove" data-ticker="${w.ticker}" title="Remove">✕</button>`;
+    list.appendChild(div);
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────
+   WebSocket
+────────────────────────────────────────────────────────────── */
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  state.ws = ws;
+  const dot = $('wsDot'), label = $('wsLabel');
+  dot.className = 'ws-dot connecting'; label.textContent = 'Connecting…';
+
+  ws.onopen = () => { dot.className = 'ws-dot connected'; label.textContent = 'Live'; state.wsRetry = 0; setStatus('Connected — live updates active'); };
+
+  ws.onmessage = e => {
+    let msg; try { msg = JSON.parse(e.data); } catch { return; }
+    const { type, data } = msg;
+    if (type === 'signal') { prependSignal(data); }
+    else if (type === 'clear_watchlist') { state.signals = state.signals.filter(s => s.ui_source !== 'watchlist'); renderSignals(); }
+    else if (type === 'status') {
+      setStatus(data.message||'', !!data.in_progress, 'watchlist');
+      setStatus(data.message||'', !!data.in_progress, 'all');
+      if (!data.in_progress) {
+        const btn = $('analyzeBtn'); btn.classList.remove('spinning'); btn.disabled = false; state.analyzing = false;
+        if (data.finished_at) { const n=state.watchlist.length; $('wlFooter').textContent=`${n} stock${n===1?'':'s'} · last run ${data.finished_at}`; }
+      }
+      if (state.activeTab !== 'scheduled') syncStatusBar();
+    }
+    else if (type === 'scheduled_status') {
+      setScheduledStatus(data.message||'', !!data.in_progress);
+      if (!data.in_progress) { const b=$('refreshScheduledBtn'); b.classList.remove('spinning'); b.disabled=false; state.refreshing=false; }
+    }
+    else if (type === 'watchlist_updated') { state.watchlist = data.watchlist||[]; renderWatchlist(); }
+    else if (type === 'settings_updated') { state.settings = data; $('tgToggle').checked = !!data.telegram_enabled; }
+    else if (type === 'bot_status') { setBotStopped(data.stopped); }
+  };
+
+  ws.onclose = () => {
+    dot.className = 'ws-dot'; label.textContent = 'Disconnected'; setStatus('Reconnecting…');
+    const delay = Math.min(1000 * 2**state.wsRetry, 16000); state.wsRetry++;
+    setTimeout(connectWS, delay);
+  };
+  ws.onerror = () => ws.close();
+}
+
+/* ──────────────────────────────────────────────────────────────
+   API
+────────────────────────────────────────────────────────────── */
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Autocomplete
+────────────────────────────────────────────────────────────── */
+let acTimer = null;
+const searchInput = $('searchInput'), acDropdown = $('acDropdown');
+searchInput.addEventListener('input', () => {
+  clearTimeout(acTimer);
+  const q = searchInput.value.trim();
+  if (!q) { acDropdown.classList.remove('open'); return; }
+  acTimer = setTimeout(() => fetchAC(q), 200);
+});
+searchInput.addEventListener('keydown', e => { if (e.key==='Escape') { acDropdown.classList.remove('open'); searchInput.value=''; } });
+async function fetchAC(q) {
+  try { const r = await api('GET', `/api/stocks/search?q=${encodeURIComponent(q)}`); renderAC(r); }
+  catch { acDropdown.classList.remove('open'); }
+}
+function renderAC(results) {
+  if (!results.length) { acDropdown.classList.remove('open'); return; }
+  acDropdown.innerHTML = '';
+  results.slice(0,10).forEach(r => {
+    const div = document.createElement('div');
+    div.className = 'ac-item';
+    div.innerHTML = `<span class="ac-name">${r.name||r.ticker}</span><span class="ac-ticker">${r.ticker}</span>`;
+    div.addEventListener('mousedown', e => { e.preventDefault(); addToWatchlist(r.ticker, r.name||r.ticker); });
+    acDropdown.appendChild(div);
+  });
+  acDropdown.classList.add('open');
+}
+document.addEventListener('click', e => { if (!$('searchWrap').contains(e.target)) acDropdown.classList.remove('open'); });
+
+/* ──────────────────────────────────────────────────────────────
+   Watchlist actions
+────────────────────────────────────────────────────────────── */
+async function addToWatchlist(ticker, name) {
+  acDropdown.classList.remove('open'); searchInput.value = '';
+  try { const entry = await api('POST', '/api/watchlist', { ticker, name }); if (!state.watchlist.find(w=>w.ticker===entry.ticker)) state.watchlist.push(entry); renderWatchlist(); setStatus(`Added ${ticker} to watchlist`); }
+  catch(err) { setStatus(`Failed to add ${ticker}: ${err.message}`); }
+}
+$('wlList').addEventListener('click', async e => {
+  const btn = e.target.closest('.wl-remove'); if (!btn) return;
+  const ticker = btn.dataset.ticker;
+  try { await api('DELETE', `/api/watchlist/${ticker}`); state.watchlist=state.watchlist.filter(w=>w.ticker!==ticker); renderWatchlist(); setStatus(`Removed ${ticker} from watchlist`); }
+  catch(err) { setStatus(`Failed to remove: ${err.message}`); }
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Telegram toggle
+────────────────────────────────────────────────────────────── */
+$('tgToggle').addEventListener('change', async e => {
+  const enabled = e.target.checked;
+  try { const s = await api('PUT', '/api/settings', { telegram_enabled: enabled }); state.settings = s; setStatus(`Telegram ${enabled?'enabled':'disabled'}`); }
+  catch(err) { e.target.checked = !enabled; setStatus('Failed to update settings'); }
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Analyse Now / Refresh Now
+────────────────────────────────────────────────────────────── */
+$('analyzeBtn').addEventListener('click', async () => {
+  if (state.analyzing) return;
+  if (!state.watchlist.length) { setStatus('Add stocks to watchlist first', false, 'watchlist'); return; }
+  state.analyzing = true;
+  const btn = $('analyzeBtn'); btn.classList.add('spinning'); btn.disabled = true;
+  setStatus(`Analysing ${state.watchlist.length} stock(s)…`, true, 'watchlist');
+  try { await api('POST', '/api/analyze'); }
+  catch(err) { setStatus(`Failed: ${err.message}`, false, 'watchlist'); btn.classList.remove('spinning'); btn.disabled=false; state.analyzing=false; }
+});
+
+$('refreshScheduledBtn').addEventListener('click', async () => {
+  if (state.refreshing) return;
+  state.refreshing = true;
+  const btn = $('refreshScheduledBtn'); btn.classList.add('spinning'); btn.disabled = true;
+  setScheduledStatus('Starting scheduled scan…', true);
+  try { await api('POST', '/api/analyze/scheduled'); }
+  catch(err) { setScheduledStatus(`Failed: ${err.message}`, false); btn.classList.remove('spinning'); btn.disabled=false; state.refreshing=false; }
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Stop / Resume
+────────────────────────────────────────────────────────────── */
+function setBotStopped(stopped) {
+  state.botStopped = stopped;
+  const btn = $('stopBtn');
+  if (stopped) { btn.className='btn success'; btn.innerHTML='<span>▶</span> Resume Bot'; }
+  else         { btn.className='btn danger';  btn.innerHTML='<span>⏹</span> Stop Bot'; }
+}
+$('stopBtn').addEventListener('click', async () => {
+  try {
+    if (!state.botStopped) {
+      await api('POST', '/api/bot/stop');
+      setStatus('Bot stopped', false, 'all'); setStatus('Bot stopped', false, 'watchlist'); setScheduledStatus('Bot stopped', false);
+      const ab=$('analyzeBtn'); ab.classList.remove('spinning'); ab.disabled=false; state.analyzing=false;
+      const rb=$('refreshScheduledBtn'); rb.classList.remove('spinning'); rb.disabled=false; state.refreshing=false;
+    } else {
+      await api('POST', '/api/bot/resume');
+      setStatus('Bot resumed', false, 'all'); setStatus('Ready', false, 'watchlist'); setScheduledStatus('Ready', false);
+    }
+  } catch(err) { setStatus(`Failed: ${err.message}`); }
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Config — provider table
+────────────────────────────────────────────────────────────── */
+const PROVIDER_DEFS = [
+  { key: 'marketaux',    label: 'Marketaux',    limitKey: 'limit' },
+  { key: 'stocknewsapi', label: 'StockNewsAPI', limitKey: 'items' },
+  { key: 'eodhd',        label: 'EODHD',        limitKey: 'limit' },
+  { key: 'marketstack',  label: 'Marketstack',  limitKey: null   },
+  { key: 'finnhub',      label: 'Finnhub',      limitKey: null   },
+  { key: 'stockgeist',   label: 'StockGeist',   limitKey: null   },
+];
+
+function buildProviderRows() {
+  const tbody = $('providerRows');
+  tbody.innerHTML = '';
+  PROVIDER_DEFS.forEach(def => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="pname">${def.label}</td>
+      <td class="penabled" style="text-align:center">
+        <label class="toggle" style="margin:0 auto;display:block;width:36px;height:20px">
+          <input type="checkbox" data-path="providers.${def.key}.enabled">
+          <span class="toggle-slider" style="border-radius:20px"></span>
+        </label>
+      </td>
+      <td>
+        <div class="pw-wrap">
+          <input class="config-input" data-path="providers.${def.key}.api_key" type="password" placeholder="API key" style="width:100%">
+          <button class="pw-eye" type="button" data-target="providers.${def.key}.api_key">👁</button>
+        </div>
+      </td>
+      <td>
+        ${def.limitKey
+          ? `<input class="config-input" data-path="providers.${def.key}.${def.limitKey}" data-type="int" type="number" min="1" max="100" style="width:70px" title="Max articles per request">`
+          : `<span style="color:var(--muted);font-size:12px">—</span>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Config — load / populate / collect / save
+────────────────────────────────────────────────────────────── */
+function getNestedVal(obj, path) {
+  return path.split('.').reduce((o, k) => o?.[k], obj);
+}
+
+function populateConfig(cfg) {
+  document.querySelectorAll('[data-path]').forEach(el => {
+    const val = getNestedVal(cfg, el.dataset.path);
+    if (val === undefined || val === null) return;
+
+    if (el.type === 'checkbox') {
+      el.checked = !!val;
+    } else if (el.dataset.type === 'csv-array') {
+      // fallback_models: array → comma string
+      el.value = Array.isArray(val) ? val.join(', ') : val;
+    } else if (el.type === 'range') {
+      el.value = val;
+      // update the sibling range-val span
+      const span = el.nextElementSibling;
+      if (span && span.classList.contains('range-val'))
+        span.textContent = Math.round(val * 100) + '%';
+    } else {
+      el.value = val;
+    }
+  });
+}
+
+function collectConfig() {
+  const cfg = {};
+  document.querySelectorAll('[data-path]').forEach(el => {
+    const path = el.dataset.path.split('.');
+    let val;
+
+    if (el.type === 'checkbox') {
+      val = el.checked;
+    } else if (el.dataset.type === 'csv-array') {
+      val = el.value.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (el.dataset.type === 'float' || el.type === 'range') {
+      val = parseFloat(el.value) || 0;
+    } else if (el.dataset.type === 'int') {
+      val = parseInt(el.value, 10) || 0;
+    } else {
+      val = el.value;
+    }
+
+    let node = cfg;
+    path.forEach((key, i) => {
+      if (i === path.length - 1) node[key] = val;
+      else { if (!node[key]) node[key] = {}; node = node[key]; }
+    });
+  });
+  return cfg;
+}
+
+async function loadConfig() {
+  setStatus('Loading config…', true, 'config');
+  try {
+    const cfg = await api('GET', '/api/config');
+    populateConfig(cfg);
+    state.configLoaded = true;
+    setStatus('Config loaded', false, 'config');
+  } catch(err) {
+    setStatus(`Failed to load config: ${err.message}`, false, 'config');
+  }
+}
+
+$('saveConfigBtn').addEventListener('click', async () => {
+  const btn = $('saveConfigBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="icon">⏳</span> Saving…';
+  setStatus('Saving configuration…', true, 'config');
+  try {
+    const cfg = collectConfig();
+    await api('PUT', '/api/config', cfg);
+    setStatus('✓ Configuration saved', false, 'config');
+    state.configLoaded = false; // force reload next visit
+  } catch(err) {
+    setStatus(`Save failed: ${err.message}`, false, 'config');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<span class="icon">💾</span> Save Configuration';
+  }
+  if (state.activeTab === 'config') syncStatusBar();
+});
+
+/* ── Password show/hide (event delegation) ── */
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.pw-eye');
+  if (!btn) return;
+  const target = btn.dataset.target;
+  const input = document.querySelector(`[data-path="${target}"]`);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  btn.textContent = input.type === 'password' ? '👁' : '🙈';
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Boot
+────────────────────────────────────────────────────────────── */
+async function boot() {
+  buildProviderRows();   // populate provider table rows before any config load
+  setStatus('Loading…', true);
+  try {
+    const [signals, watchlist, settings, botSt] = await Promise.all([
+      api('GET', '/api/signals'),
+      api('GET', '/api/watchlist'),
+      api('GET', '/api/settings'),
+      api('GET', '/api/bot/status'),
+    ]);
+    state.signals   = signals;
+    state.watchlist = watchlist;
+    state.settings  = settings;
+    $('tgToggle').checked = !!settings.telegram_enabled;
+    setBotStopped(botSt.stopped);
+    renderWatchlist();
+    renderSignals();
+    setStatus('Ready');
+  } catch(err) {
+    setStatus(`Load failed: ${err.message}`);
+  } finally {
+    $('statusBar').classList.remove('busy');
+  }
+  connectWS();
+}
+
+boot();
+</script>
+</body>
+</html>

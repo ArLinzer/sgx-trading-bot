@@ -1,0 +1,68 @@
+# SGX Trading Bot — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# macOS LibreSSL compatibility — urllib3 v2 requires OpenSSL 1.1.1+ which
+# macOS does NOT ship; pin to v1.x to avoid NotOpenSSLWarning and SSL errors.
+urllib3<2
+
+# Local LLM via Ollama
+ollama>=0.1.0
+
+# Telegram bot (v20+ required for async)
+python-telegram-bot>=20.0
+
+# Scheduler
+APScheduler>=3.10.0
+
+# Async HTTP
+aiohttp>=3.9.0
+
+# HTML parsing
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# RSS feed parsing
+feedparser>=6.0.0
+
+# Fuzzy string deduplication
+rapidfuzz>=3.0.0
+
+# Date parsing
+python-dateutil>=2.8.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Config
+PyYAML>=6.0
+
+# Retry logic
+tenacity>=8.2.0
+
+# Data manipulation
+pandas>=2.0.0
+
+# Structured logging
+loguru>=0.7.0
+
+# Timezone support (Python 3.9+ stdlib zoneinfo, but tzdata needed on some platforms)
+tzdata>=2024.1
+
+# Health-check API
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# Type annotations
+typing-extensions>=4.9.0
+
+# Date parsing (used by providers)
+python-dateutil>=2.8.0
+
+# Web search for Ollama tool-calling (no API key required)
+# ddgs is the new package name (formerly duckduckgo-search).
+# duckduckgo-search 6.x is kept as a fallback for environments where ddgs has HTTP/2 issues.
+ddgs>=9.0.0
+duckduckgo-search==6.3.7
+
+# Yahoo Finance price refresh (handles cookies/crumb/rate-limits automatically)
+yfinance>=0.2.40

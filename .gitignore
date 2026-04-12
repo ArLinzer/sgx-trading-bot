@@ -1,0 +1,37 @@
+# ── Sensitive config (contains real API keys) ──────────────────────────
+config.yaml
+
+# ── Runtime data ────────────────────────────────────────────────────────
+data/
+*.log
+
+# ── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# ── Virtual environments ─────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDEs & OS ────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Pytest / coverage ────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/

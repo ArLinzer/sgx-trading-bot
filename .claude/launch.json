@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "SGX Bot — once/LIVE (sends real Telegram)",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["main.py", "--once", "--force"],
+      "port": 8080
+    },
+    {
+      "name": "SGX Bot — once/dry-run (no Telegram)",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["main.py", "--once", "--dry-run", "--force"],
+      "port": 8080
+    },
+    {
+      "name": "SGX Bot — scheduler/LIVE (sends real Telegram)",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["main.py"],
+      "port": 8080
+    },
+    {
+      "name": "SGX Bot — scheduler/dry-run (no Telegram)",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["main.py", "--dry-run", "--force"],
+      "port": 8080
+    }
+  ]
+}
