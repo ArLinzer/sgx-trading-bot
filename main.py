@@ -477,16 +477,41 @@ class TradingBot:
         except Exception:
             pass
 
-        # ── 5. Data summary before LLM call ──────────────────────────────
+        # ── 5. Fundamental analysis (yfinance, 24-hour cache) ────────────
+        logger.info(f"[{ticker}] Fetching fundamental data (yfinance)…")
+        fundamentals: dict[str, Any] = {}
+        try:
+            fundamentals = await self.fundamentals.fetch(ticker)
+            if "error" not in fundamentals:
+                qs = fundamentals.get("quality_score")
+                val = fundamentals.get("valuation", {})
+                div = fundamentals.get("dividends", {})
+                logger.info(
+                    f"[{ticker}] Fundamentals → "
+                    f"quality_score={qs} | "
+                    f"pe={val.get('trailing_pe')} | "
+                    f"pb={val.get('price_to_book')} | "
+                    f"div_yield={div.get('yield_pct')} | "
+                    f"market_cap={val.get('market_cap_fmt')}"
+                )
+            else:
+                logger.warning(f"[{ticker}] Fundamentals not available: {fundamentals.get('error')}")
+                fundamentals = {}
+        except Exception as exc:
+            logger.warning(f"[{ticker}] Fundamentals fetch failed: {exc}")
+            fundamentals = {}
+
+        # ── 6. Data summary before LLM call ──────────────────────────────
         logger.info(
             f"[{ticker}] Data ready → "
             f"ohlcv={len(kline)} bars | "
             f"quote={quote_data.get('source','?')} | "
             f"order_book=none | "
-            f"news={len(news)} articles"
+            f"news={len(news)} articles | "
+            f"fundamentals={'yes' if fundamentals else 'no'}"
         )
 
-        # ── 6. Volume info for signal engine filtering ────────────────────
+        # ── 7. Volume info for signal engine filtering ────────────────────
         volume    = quote_data.get("volume") or stock.get("volume")
         vol_info: dict[str, Any] = {"volume": volume, "avg_volume_20d": None}
         if kline:
@@ -494,7 +519,7 @@ class TradingBot:
             if vols:
                 vol_info["avg_volume_20d"] = sum(vols) / len(vols)
 
-        # ── 7. LLM Call B — generate signal ──────────────────────────────
+        # ── 8. LLM Call B — generate signal (with fundamentals) ───────────
         signal = await self.analyst.analyse_stock(
             ticker=ticker,
             name=name,
@@ -502,6 +527,7 @@ class TradingBot:
             quote=quote_data,
             order_book={},   # no order book without Moomoo L2
             news=news,
+            fundamentals=fundamentals,
         )
         return signal, vol_info
 

@@ -194,6 +194,19 @@ ORDER BOOK SNAPSHOT (top 5 levels):
 NEWS & ANNOUNCEMENTS (last 24 hours, newest first):
 {news_json}
 
+FUNDAMENTAL DATA (source: Yahoo Finance, refreshed daily):
+{fundamentals_text}
+
+HOW TO USE FUNDAMENTALS IN YOUR SIGNAL:
+- Valuation: A low P/E relative to sector supports BUY on dips; extreme overvaluation raises caution on BUY signals.
+- Quality Score (0–100): Scores ≥60 = financially healthy; ≤30 = weak fundamentals — reduce confidence on BUY signals.
+- Dividend catalyst: If ex-dividend date is within 5 days, factor in dividend capture/drop-off dynamics.
+- 52-week position: Stock near 52W high (>85%) with strong fundamentals = breakout candidate. Near 52W low (<15%) with good fundamentals = potential reversal.
+- Growth: Positive revenue/earnings growth strengthens BUY momentum signals. Negative growth increases SELL/WATCH bias unless news-driven.
+- Debt/Equity: Very high D/E (>200 for non-financials) adds downside risk — lower confidence on BUY.
+- Beta: High beta (>1.5) means larger intraday swings — widen stop-loss range accordingly.
+- For day trading, give more weight to price/news/volume than to long-term fundamentals, but use fundamentals to VALIDATE or CONTRADICT the technical signal.
+
 Trading constraints:
 - Day trading only — all positions MUST be closed before market close (17:00 SGT)
 - SGX market hours: 09:00–17:00 SGT (lunch break 12:00–14:00)
@@ -201,17 +214,17 @@ Trading constraints:
 
 Task: Generate ONE trading signal.
 Return ONLY a JSON object with exactly these keys:
-  "ticker"         : string  — SGX stock code
-  "action"         : string  — one of "BUY", "SELL", "HOLD", "WATCH"
-  "entry_price"    : number  — suggested entry price (null if HOLD/WATCH)
-  "target_price"   : number  — profit target price (null if HOLD/WATCH)
-  "stop_loss"      : number  — stop loss price (null if HOLD/WATCH)
-  "confidence"     : number  — confidence score between 0.0 and 1.0
-  "strategy"       : string  — one of "momentum", "news_catalyst", "breakout", "mean_reversion", "range_trade"
-  "reasoning"      : string  — 2-3 sentence explanation of the signal
-  "time_horizon"   : string  — always "intraday"
-  "exit_before_eod": boolean — always true
-  "news_sources"   : array   — list of source names that influenced the signal
+  "ticker"              : string  — SGX stock code
+  "action"              : string  — one of "BUY", "SELL", "HOLD", "WATCH"
+  "entry_price"         : number  — suggested entry price (null if HOLD/WATCH)
+  "target_price"        : number  — profit target price (null if HOLD/WATCH)
+  "stop_loss"           : number  — stop loss price (null if HOLD/WATCH)
+  "confidence"          : number  — confidence score between 0.0 and 1.0
+  "strategy"            : string  — one of "momentum", "news_catalyst", "breakout", "mean_reversion", "range_trade", "fundamental_value", "dividend_capture"
+  "reasoning"           : string  — 2-3 sentence explanation including how fundamentals influenced the signal
+  "time_horizon"        : string  — always "intraday"
+  "exit_before_eod"     : boolean — always true
+  "news_sources"        : array   — list of source names that influenced the signal
 
 Example:
 {{
@@ -220,9 +233,9 @@ Example:
   "entry_price": 38.50,
   "target_price": 39.10,
   "stop_loss": 38.20,
-  "confidence": 0.78,
+  "confidence": 0.82,
   "strategy": "news_catalyst",
-  "reasoning": "DBS reported Q3 earnings beat (+12% NII). Price broke above 20-day SMA on 2x avg volume. Order book shows strong bid support at 38.40.",
+  "reasoning": "DBS reported Q3 earnings beat (+12% NII). Price broke above 20-day SMA on 2x avg volume. Fundamentals support the move: P/E of 10.2x is below sector avg, ROE of 16% is strong, quality score 77/100. 52W position at 88% signals momentum continuation.",
   "time_horizon": "intraday",
   "exit_before_eod": true,
   "news_sources": ["Business Times", "SGX Announcements"]
@@ -309,9 +322,15 @@ class LLMAnalyst:
         quote: dict[str, Any],
         order_book: dict[str, Any],
         news: list[dict[str, Any]],
+        fundamentals: Optional[dict[str, Any]] = None,
     ) -> Optional[TradingSignal]:
         """
         Generate a single trading signal for a stock using all available data.
+
+        Args:
+            fundamentals: Optional dict from FundamentalAnalyzer.fetch() — injected
+                          into the prompt so the LLM can factor in valuation, quality
+                          score, dividends, 52-week position, etc.
 
         Returns:
             Validated TradingSignal, or None on error.
@@ -327,10 +346,13 @@ class LLMAnalyst:
             for n in news[:15]
         ]
 
+        fund_text = self._format_fundamentals(fundamentals)
+
         logger.info(
             f"[LLM] Call B — Strategy | ticker={ticker} ({name}) | model={self.model} "
             f"| ohlcv_bars={len(ohlcv)} | news_items={len(slimmed_news)} "
-            f"| order_book={'yes' if order_book else 'no'} | quote={'yes' if quote else 'no'}"
+            f"| order_book={'yes' if order_book else 'no'} | quote={'yes' if quote else 'no'} "
+            f"| fundamentals={'yes' if fundamentals and 'error' not in fundamentals else 'no'}"
         )
 
         prompt = STRATEGY_PROMPT_TEMPLATE.format(
@@ -344,6 +366,7 @@ class LLMAnalyst:
                 indent=2,
             ),
             news_json=json.dumps(slimmed_news, indent=2),
+            fundamentals_text=fund_text,
         )
 
         raw = await self._call_llm(prompt, label=f"Strategy [{ticker}]", think=True, use_tools=True)
@@ -671,6 +694,101 @@ class LLMAnalyst:
     # ------------------------------------------------------------------
     # Prompt construction helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_fundamentals(fund: Optional[dict[str, Any]]) -> str:
+        """
+        Convert a FundamentalAnalyzer result dict into a compact, readable text
+        block for injection into the LLM prompt.
+
+        Keeps the total token count low while preserving every metric that
+        matters for signal validation.
+        """
+        if not fund or fund.get("error"):
+            return "Not available — fundamentals data could not be fetched."
+
+        def v(val: Any, suffix: str = "", na: str = "N/A") -> str:
+            """Render a value with an optional suffix, or na if None."""
+            if val is None:
+                return na
+            return f"{val}{suffix}"
+
+        val  = fund.get("valuation",  {})
+        inc  = fund.get("income",     {})
+        bal  = fund.get("balance",    {})
+        div  = fund.get("dividends",  {})
+        tech = fund.get("technicals", {})
+        qs   = fund.get("quality_score")
+
+        # 52-week position label
+        pos = tech.get("wk52_position_pct")
+        if pos is not None:
+            if pos >= 85:
+                pos_label = f"{pos}% (near 52W HIGH — momentum zone)"
+            elif pos <= 15:
+                pos_label = f"{pos}% (near 52W LOW — potential reversal zone)"
+            else:
+                pos_label = f"{pos}% of 52W range"
+        else:
+            pos_label = "N/A"
+
+        # Quality score label
+        if qs is not None:
+            if qs >= 60:
+                qs_label = f"{qs}/100 (STRONG — supports higher confidence)"
+            elif qs >= 35:
+                qs_label = f"{qs}/100 (MODERATE)"
+            else:
+                qs_label = f"{qs}/100 (WEAK — reduce BUY confidence)"
+        else:
+            qs_label = "N/A"
+
+        # Dividend flag
+        ex_div = div.get("ex_dividend_date")
+        div_flag = f"  Ex-Div Date   : {ex_div} ← potential dividend catalyst\n" if ex_div else ""
+
+        lines = [
+            f"  Quality Score : {qs_label}",
+            f"  Sector        : {fund.get('sector', 'N/A')}",
+            "",
+            "  [ Valuation ]",
+            f"  Market Cap    : {v(val.get('market_cap_fmt'))}    "
+            f"P/E (ttm)  : {v(val.get('trailing_pe'))}    "
+            f"P/E (fwd)  : {v(val.get('forward_pe'))}    "
+            f"P/B        : {v(val.get('price_to_book'))}",
+            f"  EV/EBITDA     : {v(val.get('ev_to_ebitda'))}",
+            "",
+            "  [ Income — Trailing 12 Months ]",
+            f"  Revenue       : {v(inc.get('revenue_fmt'))}    "
+            f"Net Income : {v(inc.get('net_income_fmt'))}    "
+            f"EPS (ttm)  : {v(inc.get('eps_trailing'))}",
+            f"  Net Margin    : {v(inc.get('net_margin_pct'))}    "
+            f"Op Margin  : {v(inc.get('operating_margin_pct'))}    "
+            f"Rev Growth : {v(inc.get('revenue_growth_pct'))}    "
+            f"Earn Growth: {v(inc.get('earnings_growth_pct'))}",
+            "",
+            "  [ Balance Sheet ]",
+            f"  Debt/Equity   : {v(bal.get('debt_to_equity'))}    "
+            f"Current Ratio: {v(bal.get('current_ratio'))}    "
+            f"Book Val/Sh: {v(bal.get('book_value_per_share'))}",
+            f"  ROE           : {v(bal.get('roe_pct'))}    "
+            f"ROA        : {v(bal.get('roa_pct'))}    "
+            f"Free CF    : {v(bal.get('free_cashflow_fmt'))}",
+            "",
+            "  [ Dividends ]",
+            f"  Div Yield     : {v(div.get('yield_pct'))}    "
+            f"Annual DPS : {v(div.get('annual_dps'))}    "
+            f"Payout     : {v(div.get('payout_ratio_pct'))}",
+            div_flag.rstrip() if div_flag else "  Ex-Div Date   : N/A",
+            "",
+            "  [ Technicals ]",
+            f"  52W Range     : {v(tech.get('wk52_low'))} – {v(tech.get('wk52_high'))}    "
+            f"Position   : {pos_label}",
+            f"  Beta          : {v(tech.get('beta'))}    "
+            f"Avg Vol(10d): {v(tech.get('avg_volume_10d'), na='N/A')}",
+        ]
+
+        return "\n".join(lines)
 
     @staticmethod
     def _build_stock_csv(stock_list: list[dict[str, Any]], max_rows: int = 500) -> str:
