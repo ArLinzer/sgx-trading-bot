@@ -868,6 +868,10 @@ def create_health_app(bot: TradingBot) -> FastAPI:
     async def ui():
         return FileResponse(os.path.join(_static_dir, "index.html"))
 
+    @app.get("/config", include_in_schema=False)
+    async def config_ui():
+        return FileResponse(os.path.join(_static_dir, "config.html"))
+
     # ── WebSocket ──────────────────────────────────────────────────────
     @app.websocket("/ws")
     async def websocket_endpoint(ws: WebSocket):
@@ -888,11 +892,22 @@ def create_health_app(bot: TradingBot) -> FastAPI:
             })
         except Exception:
             pass
+        async def _keep_alive():
+            try:
+                while True:
+                    await asyncio.sleep(25)
+                    await ws.send_json({"type": "ping"})
+            except Exception:
+                pass
+
+        ping_task = asyncio.create_task(_keep_alive())
         try:
             while True:
                 await ws.receive_text()   # keep alive; client sends nothing meaningful
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, Exception):
             bot.ws_manager.disconnect(ws)
+        finally:
+            ping_task.cancel()
 
     # ── Health / legacy ────────────────────────────────────────────────
     @app.get("/health")

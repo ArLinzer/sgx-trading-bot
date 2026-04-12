@@ -136,41 +136,6 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .card-footer{padding:6px 14px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
 .card-footer .news-src{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 
-/* ── Config panel ── */
-.config-panel{flex:1;overflow-y:auto;padding:20px;display:none}
-.config-panel.active{display:block}
-.config-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
-.config-section-header{padding:11px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
-.config-section-title{font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.6px;flex:1}
-.restart-badge{font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(227,179,65,.15);color:var(--hold);border:1px solid rgba(227,179,65,.3)}
-.config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;background:var(--border)}
-.config-field{display:flex;flex-direction:column;gap:5px;padding:12px 16px;background:var(--surface)}
-.config-label{font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:6px}
-.config-input,.config-select{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s;font-family:inherit}
-.config-input:focus,.config-select:focus{border-color:var(--accent)}
-.config-input[type=number]{font-variant-numeric:tabular-nums}
-.config-hint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:1px}
-/* password field */
-.pw-wrap{position:relative;display:flex;align-items:center}
-.pw-wrap .config-input{padding-right:34px}
-.pw-eye{position:absolute;right:9px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:2px;transition:color .1s}
-.pw-eye:hover{color:var(--text)}
-/* range slider */
-.range-wrap{display:flex;align-items:center;gap:10px}
-.range-wrap input[type=range]{flex:1;height:4px;cursor:pointer;accent-color:var(--accent)}
-.range-val{font-size:13px;font-weight:600;color:var(--text);min-width:38px;text-align:right}
-/* provider table */
-.provider-table{width:100%;border-collapse:collapse}
-.provider-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:8px 16px;text-align:left;border-bottom:1px solid var(--border)}
-.provider-table td{padding:8px 16px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px}
-.provider-table tr:last-child td{border-bottom:none}
-.provider-table .pname{font-weight:600;color:var(--text);width:130px}
-.provider-table .penabled{width:56px}
-.provider-table .plimit{width:80px}
-/* config save bar */
-.config-save-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
-.config-save-note{font-size:11px;color:var(--muted);flex:1}
-
 /* ── Fundamentals modal ── */
 .fund-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
 .fund-overlay.open{display:flex}
@@ -213,7 +178,6 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 @media(max-width:700px){
   aside{width:220px;min-width:220px}
   .signals-wrap{grid-template-columns:1fr;padding:10px}
-  .config-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -236,6 +200,7 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden}
   <button class="btn danger" id="stopBtn" title="Stop all bot activity">
     <span>⏹</span> Stop Bot
   </button>
+  <a href="/config" class="btn" style="text-decoration:none" title="Open configuration page">⚙</a>
 </nav>
 
 <!-- ── Body ── -->
@@ -265,7 +230,6 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden}
         <div class="tab active" data-tab="all">All Signals <span class="count" id="cntAll">0</span></div>
         <div class="tab" data-tab="watchlist">Watchlist <span class="count" id="cntWl">0</span></div>
         <div class="tab" data-tab="scheduled">Scheduled <span class="count" id="cntSched">0</span></div>
-        <div class="tab" data-tab="config">⚙ Config</div>
       </div>
       <div class="tab-actions">
         <button class="btn primary" id="analyzeBtn"          style="display:none"><span class="icon">▶</span> Analyse Now</button>
@@ -287,205 +251,31 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden}
       </div>
     </div>
 
-    <!-- ── Config Panel ── -->
-    <div class="config-panel" id="configPanel">
-
-      <!-- Telegram -->
-      <div class="config-section">
-        <div class="config-section-header">
-          <span class="config-section-title">📨 Telegram</span>
-        </div>
-        <div class="config-grid">
-          <div class="config-field">
-            <label class="config-label">Bot Token</label>
-            <div class="pw-wrap">
-              <input class="config-input" data-path="telegram.bot_token" type="password" placeholder="From @BotFather">
-              <button class="pw-eye" type="button" data-target="telegram.bot_token">👁</button>
-            </div>
-            <div class="config-hint">Get from @BotFather on Telegram</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Chat ID</label>
-            <input class="config-input" data-path="telegram.chat_id" type="text" placeholder="Your chat or group ID">
-            <div class="config-hint">Get from @userinfobot</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- LLM -->
-      <div class="config-section">
-        <div class="config-section-header">
-          <span class="config-section-title">🤖 LLM / Ollama</span>
-          <span class="restart-badge">⚠ Restart to apply</span>
-        </div>
-        <div class="config-grid">
-          <div class="config-field">
-            <label class="config-label">Primary Model</label>
-            <input class="config-input" data-path="llm.model" type="text" placeholder="qwen3.5:9b">
-            <div class="config-hint">Must be pulled in Ollama</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Fallback Models</label>
-            <input class="config-input" data-path="llm.fallback_models" data-type="csv-array" type="text" placeholder="mistral, phi3">
-            <div class="config-hint">Comma-separated, tried in order</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Ollama Host</label>
-            <input class="config-input" data-path="llm.ollama_host" type="text" placeholder="http://localhost:11434">
-          </div>
-          <div class="config-field">
-            <label class="config-label">Request Timeout (s)</label>
-            <input class="config-input" data-path="llm.request_timeout" data-type="number" type="number" min="10" max="600">
-            <div class="config-hint">LLM calls can be slow — allow 60–300 s</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Filters -->
-      <div class="config-section">
-        <div class="config-section-header">
-          <span class="config-section-title">🎯 Signal Filters</span>
-          <span style="font-size:11px;color:var(--buy);margin-left:4px">✓ Live — no restart needed</span>
-        </div>
-        <div class="config-grid">
-          <div class="config-field">
-            <label class="config-label">Min Confidence</label>
-            <div class="range-wrap">
-              <input type="range" data-path="filters.min_confidence" data-type="float"
-                     min="0" max="1" step="0.01"
-                     oninput="this.nextElementSibling.textContent=Math.round(this.value*100)+'%'">
-              <span class="range-val">65%</span>
-            </div>
-            <div class="config-hint">Signals below this threshold are dropped</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Min Volume Ratio</label>
-            <input class="config-input" data-path="filters.min_volume_ratio" data-type="float" type="number" min="0.1" max="10" step="0.1">
-            <div class="config-hint">Must be N× above 20-day avg volume</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Max Signals / Session</label>
-            <input class="config-input" data-path="filters.max_signals_per_session" data-type="int" type="number" min="1" max="20">
-            <div class="config-hint">Top N signals sent per session</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Pre-filter Top N</label>
-            <input class="config-input" data-path="filters.pre_filter_top_n" data-type="int" type="number" min="10" max="500">
-            <div class="config-hint">Narrow SGX list to top N by turnover before LLM</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Max LLM Select</label>
-            <input class="config-input" data-path="filters.max_llm_select" data-type="int" type="number" min="1" max="50">
-            <div class="config-hint">LLM picks at most this many tickers</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Min Turnover SGD</label>
-            <input class="config-input" data-path="filters.min_turnover_sgd" data-type="int" type="number" min="0" step="1000000">
-            <div class="config-hint">Daily SGD turnover floor (0 = disabled)</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Scheduler -->
-      <div class="config-section">
-        <div class="config-section-header">
-          <span class="config-section-title">🕐 Scheduler</span>
-          <span class="restart-badge">⚠ Restart to apply</span>
-        </div>
-        <div class="config-grid">
-          <div class="config-field">
-            <label class="config-label">Timezone</label>
-            <input class="config-input" data-path="scheduler.timezone" type="text" placeholder="Asia/Singapore">
-          </div>
-          <div class="config-field">
-            <label class="config-label">Morning Scan</label>
-            <input class="config-input" data-path="scheduler.morning_scan" type="time">
-            <div class="config-hint">Stock selection (Call A)</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Morning Signal</label>
-            <input class="config-input" data-path="scheduler.morning_signal" type="time">
-            <div class="config-hint">Signal generation + Telegram send</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Midday Refresh</label>
-            <input class="config-input" data-path="scheduler.midday_refresh" type="time">
-          </div>
-          <div class="config-field">
-            <label class="config-label">Afternoon Signal</label>
-            <input class="config-input" data-path="scheduler.afternoon_signal" type="time">
-          </div>
-          <div class="config-field">
-            <label class="config-label">EOD Reminder</label>
-            <input class="config-input" data-path="scheduler.eod_reminder" type="time">
-            <div class="config-hint">Sell reminder before market close</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Daily Summary</label>
-            <input class="config-input" data-path="scheduler.daily_summary" type="time">
-          </div>
-        </div>
-      </div>
-
-      <!-- Data Providers -->
-      <div class="config-section">
-        <div class="config-section-header">
-          <span class="config-section-title">🔌 Data Providers</span>
-          <span class="restart-badge">⚠ Restart to apply</span>
-        </div>
-        <table class="provider-table">
-          <thead>
-            <tr>
-              <th>Provider</th>
-              <th style="text-align:center">On</th>
-              <th>API Key</th>
-              <th>Limit</th>
-            </tr>
-          </thead>
-          <tbody id="providerRows"><!-- populated by JS --></tbody>
-        </table>
-      </div>
-
-      <!-- Logging -->
-      <div class="config-section">
-        <div class="config-section-header">
-          <span class="config-section-title">📋 Logging</span>
-          <span class="restart-badge">⚠ Restart to apply</span>
-        </div>
-        <div class="config-grid">
-          <div class="config-field">
-            <label class="config-label">Log Level</label>
-            <select class="config-select" data-path="logging.level">
-              <option value="DEBUG">DEBUG</option>
-              <option value="INFO">INFO</option>
-              <option value="WARNING">WARNING</option>
-              <option value="ERROR">ERROR</option>
-            </select>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Log Directory</label>
-            <input class="config-input" data-path="logging.log_dir" type="text" placeholder="data/logs">
-          </div>
-          <div class="config-field">
-            <label class="config-label">Rotation</label>
-            <input class="config-input" data-path="logging.rotation" type="text" placeholder="00:00">
-            <div class="config-hint">Time or size e.g. "00:00" or "100 MB"</div>
-          </div>
-          <div class="config-field">
-            <label class="config-label">Retention</label>
-            <input class="config-input" data-path="logging.retention" type="text" placeholder="30 days">
-          </div>
-        </div>
-      </div>
-
-      <!-- Save bar -->
-      <div class="config-save-bar">
-        <span class="config-save-note">⚠ Saving rewrites config.yaml — inline comments will be removed.<br>Fields marked "Restart to apply" take effect after restarting the bot.</span>
-        <button class="btn primary" id="saveConfigBtn"><span class="icon">💾</span> Save Configuration</button>
-      </div>
-    </div><!-- /config-panel -->
-
   </main>
+</div>
+
+<!-- ── Fundamentals Modal ── -->
+<div class="fund-overlay" id="fundOverlay">
+  <div class="fund-modal" id="fundModal">
+    <div class="fund-modal-head" id="fundHead">
+      <div>
+        <div class="fund-ticker-big" id="fundTicker">—</div>
+        <div class="fund-company"   id="fundCompany"></div>
+        <div class="fund-sector"    id="fundSector"></div>
+      </div>
+      <div class="fund-head-right">
+        <div class="fund-score">
+          <span class="fund-score-label">Quality Score</span>
+          <span class="fund-score-val" id="fundScore">—</span>
+        </div>
+        <div class="fund-price-row" id="fundPriceRow"></div>
+      </div>
+      <button class="fund-close-btn" id="fundCloseBtn" title="Close">✕</button>
+    </div>
+    <div class="fund-modal-body" id="fundBody">
+      <div class="fund-loading">Loading fundamentals…</div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -503,12 +293,10 @@ const state = {
   analyzing:  false,
   refreshing: false,
   botStopped: false,
-  configLoaded: false,
   status: {
     all:       { msg: 'Ready', busy: false },
     watchlist: { msg: 'Ready', busy: false },
     scheduled: { msg: 'No scheduled run yet', busy: false },
-    config:    { msg: 'Config', busy: false },
   },
 };
 
@@ -540,10 +328,6 @@ function syncTabUI() {
   const t = state.activeTab;
   $('analyzeBtn').style.display          = t === 'watchlist' ? 'inline-flex' : 'none';
   $('refreshScheduledBtn').style.display = t === 'scheduled' ? 'inline-flex' : 'none';
-  const isConfig = t === 'config';
-  $('signalsGrid').style.display  = isConfig ? 'none'  : '';
-  $('configPanel').classList.toggle('active', isConfig);
-  if (isConfig && !state.configLoaded) loadConfig();
   syncStatusBar();
 }
 
@@ -552,7 +336,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
     state.activeTab = tab.dataset.tab;
-    if (tab.dataset.tab !== 'config') renderSignals();
+    renderSignals();
     syncTabUI();
   });
 });
@@ -701,6 +485,7 @@ function connectWS() {
   ws.onmessage = e => {
     let msg; try { msg = JSON.parse(e.data); } catch { return; }
     const { type, data } = msg;
+    if (type === 'ping') { return; }
     if (type === 'signal') { prependSignal(data); }
     else if (type === 'clear_watchlist') { state.signals = state.signals.filter(s => s.ui_source !== 'watchlist'); renderSignals(); }
     else if (type === 'status') {
@@ -722,8 +507,15 @@ function connectWS() {
   };
 
   ws.onclose = () => {
-    dot.className = 'ws-dot'; label.textContent = 'Disconnected'; setStatus('Reconnecting…');
-    const delay = Math.min(1000 * 2**state.wsRetry, 16000); state.wsRetry++;
+    state.wsRetry++;
+    if (state.wsRetry > 6) {
+      dot.className = 'ws-dot'; label.textContent = 'Offline';
+      setStatus('WebSocket offline — reload the page to reconnect');
+      return;
+    }
+    dot.className = 'ws-dot'; label.textContent = 'Disconnected';
+    setStatus('Reconnecting…');
+    const delay = Math.min(1000 * 2 ** state.wsRetry, 16000);
     setTimeout(connectWS, delay);
   };
   ws.onerror = () => ws.close();
@@ -845,147 +637,9 @@ $('stopBtn').addEventListener('click', async () => {
 });
 
 /* ──────────────────────────────────────────────────────────────
-   Config — provider table
-────────────────────────────────────────────────────────────── */
-const PROVIDER_DEFS = [
-  { key: 'marketaux',    label: 'Marketaux',    limitKey: 'limit' },
-  { key: 'stocknewsapi', label: 'StockNewsAPI', limitKey: 'items' },
-  { key: 'eodhd',        label: 'EODHD',        limitKey: 'limit' },
-  { key: 'marketstack',  label: 'Marketstack',  limitKey: null   },
-  { key: 'finnhub',      label: 'Finnhub',      limitKey: null   },
-  { key: 'stockgeist',   label: 'StockGeist',   limitKey: null   },
-];
-
-function buildProviderRows() {
-  const tbody = $('providerRows');
-  tbody.innerHTML = '';
-  PROVIDER_DEFS.forEach(def => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class="pname">${def.label}</td>
-      <td class="penabled" style="text-align:center">
-        <label class="toggle" style="margin:0 auto;display:block;width:36px;height:20px">
-          <input type="checkbox" data-path="providers.${def.key}.enabled">
-          <span class="toggle-slider" style="border-radius:20px"></span>
-        </label>
-      </td>
-      <td>
-        <div class="pw-wrap">
-          <input class="config-input" data-path="providers.${def.key}.api_key" type="password" placeholder="API key" style="width:100%">
-          <button class="pw-eye" type="button" data-target="providers.${def.key}.api_key">👁</button>
-        </div>
-      </td>
-      <td>
-        ${def.limitKey
-          ? `<input class="config-input" data-path="providers.${def.key}.${def.limitKey}" data-type="int" type="number" min="1" max="100" style="width:70px" title="Max articles per request">`
-          : `<span style="color:var(--muted);font-size:12px">—</span>`}
-      </td>
-    `;
-    tbody.appendChild(tr);
-  });
-}
-
-/* ──────────────────────────────────────────────────────────────
-   Config — load / populate / collect / save
-────────────────────────────────────────────────────────────── */
-function getNestedVal(obj, path) {
-  return path.split('.').reduce((o, k) => o?.[k], obj);
-}
-
-function populateConfig(cfg) {
-  document.querySelectorAll('[data-path]').forEach(el => {
-    const val = getNestedVal(cfg, el.dataset.path);
-    if (val === undefined || val === null) return;
-
-    if (el.type === 'checkbox') {
-      el.checked = !!val;
-    } else if (el.dataset.type === 'csv-array') {
-      // fallback_models: array → comma string
-      el.value = Array.isArray(val) ? val.join(', ') : val;
-    } else if (el.type === 'range') {
-      el.value = val;
-      // update the sibling range-val span
-      const span = el.nextElementSibling;
-      if (span && span.classList.contains('range-val'))
-        span.textContent = Math.round(val * 100) + '%';
-    } else {
-      el.value = val;
-    }
-  });
-}
-
-function collectConfig() {
-  const cfg = {};
-  document.querySelectorAll('[data-path]').forEach(el => {
-    const path = el.dataset.path.split('.');
-    let val;
-
-    if (el.type === 'checkbox') {
-      val = el.checked;
-    } else if (el.dataset.type === 'csv-array') {
-      val = el.value.split(',').map(s => s.trim()).filter(Boolean);
-    } else if (el.dataset.type === 'float' || el.type === 'range') {
-      val = parseFloat(el.value) || 0;
-    } else if (el.dataset.type === 'int') {
-      val = parseInt(el.value, 10) || 0;
-    } else {
-      val = el.value;
-    }
-
-    let node = cfg;
-    path.forEach((key, i) => {
-      if (i === path.length - 1) node[key] = val;
-      else { if (!node[key]) node[key] = {}; node = node[key]; }
-    });
-  });
-  return cfg;
-}
-
-async function loadConfig() {
-  setStatus('Loading config…', true, 'config');
-  try {
-    const cfg = await api('GET', '/api/config');
-    populateConfig(cfg);
-    state.configLoaded = true;
-    setStatus('Config loaded', false, 'config');
-  } catch(err) {
-    setStatus(`Failed to load config: ${err.message}`, false, 'config');
-  }
-}
-
-$('saveConfigBtn').addEventListener('click', async () => {
-  const btn = $('saveConfigBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="icon">⏳</span> Saving…';
-  setStatus('Saving configuration…', true, 'config');
-  try {
-    const cfg = collectConfig();
-    await api('PUT', '/api/config', cfg);
-    setStatus('✓ Configuration saved', false, 'config');
-    state.configLoaded = false; // force reload next visit
-  } catch(err) {
-    setStatus(`Save failed: ${err.message}`, false, 'config');
-  } finally {
-    btn.disabled = false; btn.innerHTML = '<span class="icon">💾</span> Save Configuration';
-  }
-  if (state.activeTab === 'config') syncStatusBar();
-});
-
-/* ── Password show/hide (event delegation) ── */
-document.addEventListener('click', e => {
-  const btn = e.target.closest('.pw-eye');
-  if (!btn) return;
-  const target = btn.dataset.target;
-  const input = document.querySelector(`[data-path="${target}"]`);
-  if (!input) return;
-  input.type = input.type === 'password' ? 'text' : 'password';
-  btn.textContent = input.type === 'password' ? '👁' : '🙈';
-});
-
-/* ──────────────────────────────────────────────────────────────
    Boot
 ────────────────────────────────────────────────────────────── */
 async function boot() {
-  buildProviderRows();   // populate provider table rows before any config load
   setStatus('Loading…', true);
   try {
     const [signals, watchlist, settings, botSt] = await Promise.all([
@@ -1046,7 +700,7 @@ function fmtVal(v, suffix='', na='—') {
   return `<span class="fund-cell-val">${v}${suffix}</span>`;
 }
 
-function fmtPct(v, na='—') {
+function fmtFundPct(v, na='—') {
   if (v === null || v === undefined) return `<span class="fund-cell-val muted">${na}</span>`;
   const n = parseFloat(v);
   const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
@@ -1119,11 +773,11 @@ function renderFundamentals(d) {
         ${fundCell('Revenue',       fmtVal(inc.revenue_fmt))}
         ${fundCell('Net Income',    fmtVal(inc.net_income_fmt))}
         ${fundCell('EPS',           fmtVal(inc.eps_trailing),  inc.eps_forward ? `Forward: ${inc.eps_forward}` : '')}
-        ${fundCell('Net Margin',    fmtPct(inc.net_margin_pct))}
-        ${fundCell('Gross Margin',  fmtPct(inc.gross_margin_pct))}
-        ${fundCell('Op. Margin',    fmtPct(inc.operating_margin_pct))}
-        ${fundCell('Revenue Growth YoY', fmtPct(inc.revenue_growth_pct))}
-        ${fundCell('Earnings Growth YoY', fmtPct(inc.earnings_growth_pct))}
+        ${fundCell('Net Margin',    fmtFundPct(inc.net_margin_pct))}
+        ${fundCell('Gross Margin',  fmtFundPct(inc.gross_margin_pct))}
+        ${fundCell('Op. Margin',    fmtFundPct(inc.operating_margin_pct))}
+        ${fundCell('Revenue Growth YoY', fmtFundPct(inc.revenue_growth_pct))}
+        ${fundCell('Earnings Growth YoY', fmtFundPct(inc.earnings_growth_pct))}
       </div>
     </div>
 
@@ -1134,8 +788,8 @@ function renderFundamentals(d) {
         ${fundCell('Debt / Equity',   fmtVal(bal.debt_to_equity))}
         ${fundCell('Current Ratio',   fmtVal(bal.current_ratio))}
         ${fundCell('Book Value/Share',fmtVal(bal.book_value_per_share))}
-        ${fundCell('ROE',             fmtPct(bal.roe_pct))}
-        ${fundCell('ROA',             fmtPct(bal.roa_pct))}
+        ${fundCell('ROE',             fmtFundPct(bal.roe_pct))}
+        ${fundCell('ROA',             fmtFundPct(bal.roa_pct))}
         ${fundCell('Free Cash Flow',  fmtVal(bal.free_cashflow_fmt))}
       </div>
     </div>
@@ -1144,9 +798,9 @@ function renderFundamentals(d) {
     <div class="fund-section">
       <div class="fund-section-title">💎 Dividends</div>
       <div class="fund-grid">
-        ${fundCell('Dividend Yield',  fmtPct(div.yield_pct))}
+        ${fundCell('Dividend Yield',  fmtFundPct(div.yield_pct))}
         ${fundCell('Annual DPS',      fmtVal(div.annual_dps))}
-        ${fundCell('Payout Ratio',    fmtPct(div.payout_ratio_pct))}
+        ${fundCell('Payout Ratio',    fmtFundPct(div.payout_ratio_pct))}
         ${fundCell('Ex-Dividend Date',fmtVal(div.ex_dividend_date))}
       </div>
     </div>
@@ -1182,29 +836,5 @@ async function clearAndRefetch(ticker) {
 
 boot();
 </script>
-
-<!-- ── Fundamentals Modal ── -->
-<div class="fund-overlay" id="fundOverlay">
-  <div class="fund-modal" id="fundModal">
-    <div class="fund-modal-head" id="fundHead">
-      <div>
-        <div class="fund-ticker-big" id="fundTicker">—</div>
-        <div class="fund-company"   id="fundCompany"></div>
-        <div class="fund-sector"    id="fundSector"></div>
-      </div>
-      <div class="fund-head-right">
-        <div class="fund-score">
-          <span class="fund-score-label">Quality Score</span>
-          <span class="fund-score-val" id="fundScore">—</span>
-        </div>
-        <div class="fund-price-row" id="fundPriceRow"></div>
-      </div>
-      <button class="fund-close-btn" id="fundCloseBtn" title="Close">✕</button>
-    </div>
-    <div class="fund-modal-body" id="fundBody">
-      <div class="fund-loading">Loading fundamentals…</div>
-    </div>
-  </div>
-</div>
 </body>
 </html>

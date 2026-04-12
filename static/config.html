@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SGX Trading Bot — Configuration</title>
+<style>
+:root {
+  --bg:        #0d1117;
+  --surface:   #161b22;
+  --surface2:  #1c2230;
+  --border:    #21262d;
+  --border2:   #30363d;
+  --text:      #e6edf3;
+  --muted:     #8b949e;
+  --accent:    #1f6feb;
+  --buy:       #2ea043;
+  --sell:      #da3633;
+  --hold:      #e3b341;
+  --radius:    8px;
+  --shadow:    0 2px 8px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+/* ── navbar ── */
+nav{display:flex;align-items:center;gap:12px;padding:0 20px;height:52px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;z-index:100}
+nav .logo{font-weight:700;font-size:15px;letter-spacing:.3px;white-space:nowrap}
+nav .logo span{color:var(--accent)}
+nav .spacer{flex:1}
+.btn{padding:6px 14px;border-radius:6px;border:1px solid var(--border2);background:var(--surface2);color:var(--text);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:background .15s,border-color .15s;white-space:nowrap;text-decoration:none}
+.btn:hover{background:#21262d;border-color:var(--accent)}
+.btn:active{transform:scale(.98)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#388bfd}
+@keyframes spin{to{transform:rotate(360deg)}}
+.btn .icon{display:inline-block}
+
+/* ── status bar ── */
+.status-bar{display:flex;align-items:center;gap:8px;padding:6px 20px;font-size:12px;color:var(--muted);background:var(--bg);border-bottom:1px solid var(--border);min-height:30px;flex-shrink:0}
+
+/* ── config panel ── */
+.config-panel{flex:1;overflow-y:auto;padding:20px}
+.config-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
+.config-section-header{padding:11px 16px;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.config-section-title{font-size:12px;font-weight:700;color:var(--text);text-transform:uppercase;letter-spacing:.6px;flex:1}
+.restart-badge{font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(227,179,65,.15);color:var(--hold);border:1px solid rgba(227,179,65,.3)}
+.config-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;background:var(--border)}
+.config-field{display:flex;flex-direction:column;gap:5px;padding:12px 16px;background:var(--surface)}
+.config-label{font-size:12px;font-weight:500;color:var(--muted);display:flex;align-items:center;gap:6px}
+.config-input,.config-select{width:100%;padding:7px 10px;background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);font-size:13px;outline:none;transition:border-color .15s;font-family:inherit}
+.config-input:focus,.config-select:focus{border-color:var(--accent)}
+.config-input[type=number]{font-variant-numeric:tabular-nums}
+.config-hint{font-size:11px;color:var(--muted);line-height:1.4;margin-top:1px}
+/* password field */
+.pw-wrap{position:relative;display:flex;align-items:center}
+.pw-wrap .config-input{padding-right:34px}
+.pw-eye{position:absolute;right:9px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:2px;transition:color .1s}
+.pw-eye:hover{color:var(--text)}
+/* range slider */
+.range-wrap{display:flex;align-items:center;gap:10px}
+.range-wrap input[type=range]{flex:1;height:4px;cursor:pointer;accent-color:var(--accent)}
+.range-val{font-size:13px;font-weight:600;color:var(--text);min-width:38px;text-align:right}
+/* provider table */
+.provider-table{width:100%;border-collapse:collapse}
+.provider-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:8px 16px;text-align:left;border-bottom:1px solid var(--border)}
+.provider-table td{padding:8px 16px;border-bottom:1px solid var(--border);vertical-align:middle;font-size:13px}
+.provider-table tr:last-child td{border-bottom:none}
+.provider-table .pname{font-weight:600;color:var(--text);width:130px}
+.provider-table .penabled{width:56px}
+.provider-table .plimit{width:80px}
+/* config save bar */
+.config-save-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
+.config-save-note{font-size:11px;color:var(--muted);flex:1}
+/* toggle */
+.toggle{position:relative;width:40px;height:22px;cursor:pointer}
+.toggle input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;inset:0;background:#30363d;border-radius:22px;transition:.25s}
+.toggle-slider:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s}
+.toggle input:checked+.toggle-slider{background:var(--accent)}
+.toggle input:checked+.toggle-slider:before{transform:translateX(18px)}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+
+@media(max-width:700px){
+  .config-grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<!-- ── Navbar ── -->
+<nav>
+  <div class="logo">📈 <span>SGX</span> Trading Bot</div>
+  <div class="spacer"></div>
+  <a href="/" class="btn" style="text-decoration:none" title="Back to Dashboard">← Dashboard</a>
+</nav>
+
+<!-- ── Status bar ── -->
+<div class="status-bar" id="statusBar">
+  <span id="statusMsg">Loading config…</span>
+</div>
+
+<!-- ── Config Panel ── -->
+<div class="config-panel">
+
+  <!-- Telegram -->
+  <div class="config-section">
+    <div class="config-section-header">
+      <span class="config-section-title">📨 Telegram</span>
+    </div>
+    <div class="config-grid">
+      <div class="config-field">
+        <label class="config-label">Bot Token</label>
+        <div class="pw-wrap">
+          <input class="config-input" data-path="telegram.bot_token" type="password" placeholder="From @BotFather">
+          <button class="pw-eye" type="button" data-target="telegram.bot_token">👁</button>
+        </div>
+        <div class="config-hint">Get from @BotFather on Telegram</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Chat ID</label>
+        <input class="config-input" data-path="telegram.chat_id" type="text" placeholder="Your chat or group ID">
+        <div class="config-hint">Get from @userinfobot</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LLM -->
+  <div class="config-section">
+    <div class="config-section-header">
+      <span class="config-section-title">🤖 LLM / Ollama</span>
+      <span class="restart-badge">⚠ Restart to apply</span>
+    </div>
+    <div class="config-grid">
+      <div class="config-field">
+        <label class="config-label">Primary Model</label>
+        <input class="config-input" data-path="llm.model" type="text" placeholder="qwen3.5:9b">
+        <div class="config-hint">Must be pulled in Ollama</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Fallback Models</label>
+        <input class="config-input" data-path="llm.fallback_models" data-type="csv-array" type="text" placeholder="mistral, phi3">
+        <div class="config-hint">Comma-separated, tried in order</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Ollama Host</label>
+        <input class="config-input" data-path="llm.ollama_host" type="text" placeholder="http://localhost:11434">
+      </div>
+      <div class="config-field">
+        <label class="config-label">Request Timeout (s)</label>
+        <input class="config-input" data-path="llm.request_timeout" data-type="number" type="number" min="10" max="600">
+        <div class="config-hint">LLM calls can be slow — allow 60–300 s</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="config-section">
+    <div class="config-section-header">
+      <span class="config-section-title">🎯 Signal Filters</span>
+      <span style="font-size:11px;color:var(--buy);margin-left:4px">✓ Live — no restart needed</span>
+    </div>
+    <div class="config-grid">
+      <div class="config-field">
+        <label class="config-label">Min Confidence</label>
+        <div class="range-wrap">
+          <input type="range" data-path="filters.min_confidence" data-type="float"
+                 min="0" max="1" step="0.01"
+                 oninput="this.nextElementSibling.textContent=Math.round(this.value*100)+'%'">
+          <span class="range-val">65%</span>
+        </div>
+        <div class="config-hint">Signals below this threshold are dropped</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Min Volume Ratio</label>
+        <input class="config-input" data-path="filters.min_volume_ratio" data-type="float" type="number" min="0.1" max="10" step="0.1">
+        <div class="config-hint">Must be N× above 20-day avg volume</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Max Signals / Session</label>
+        <input class="config-input" data-path="filters.max_signals_per_session" data-type="int" type="number" min="1" max="20">
+        <div class="config-hint">Top N signals sent per session</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Pre-filter Top N</label>
+        <input class="config-input" data-path="filters.pre_filter_top_n" data-type="int" type="number" min="10" max="500">
+        <div class="config-hint">Narrow SGX list to top N by turnover before LLM</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Max LLM Select</label>
+        <input class="config-input" data-path="filters.max_llm_select" data-type="int" type="number" min="1" max="50">
+        <div class="config-hint">LLM picks at most this many tickers</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Min Turnover SGD</label>
+        <input class="config-input" data-path="filters.min_turnover_sgd" data-type="int" type="number" min="0" step="1000000">
+        <div class="config-hint">Daily SGD turnover floor (0 = disabled)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scheduler -->
+  <div class="config-section">
+    <div class="config-section-header">
+      <span class="config-section-title">🕐 Scheduler</span>
+      <span class="restart-badge">⚠ Restart to apply</span>
+    </div>
+    <div class="config-grid">
+      <div class="config-field">
+        <label class="config-label">Timezone</label>
+        <input class="config-input" data-path="scheduler.timezone" type="text" placeholder="Asia/Singapore">
+      </div>
+      <div class="config-field">
+        <label class="config-label">Morning Scan</label>
+        <input class="config-input" data-path="scheduler.morning_scan" type="time">
+        <div class="config-hint">Stock selection (Call A)</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Morning Signal</label>
+        <input class="config-input" data-path="scheduler.morning_signal" type="time">
+        <div class="config-hint">Signal generation + Telegram send</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Midday Refresh</label>
+        <input class="config-input" data-path="scheduler.midday_refresh" type="time">
+      </div>
+      <div class="config-field">
+        <label class="config-label">Afternoon Signal</label>
+        <input class="config-input" data-path="scheduler.afternoon_signal" type="time">
+      </div>
+      <div class="config-field">
+        <label class="config-label">EOD Reminder</label>
+        <input class="config-input" data-path="scheduler.eod_reminder" type="time">
+        <div class="config-hint">Sell reminder before market close</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Daily Summary</label>
+        <input class="config-input" data-path="scheduler.daily_summary" type="time">
+      </div>
+    </div>
+  </div>
+
+  <!-- Data Providers -->
+  <div class="config-section">
+    <div class="config-section-header">
+      <span class="config-section-title">🔌 Data Providers</span>
+      <span class="restart-badge">⚠ Restart to apply</span>
+    </div>
+    <table class="provider-table">
+      <thead>
+        <tr>
+          <th>Provider</th>
+          <th style="text-align:center">On</th>
+          <th>API Key</th>
+          <th>Limit</th>
+        </tr>
+      </thead>
+      <tbody id="providerRows"><!-- populated by JS --></tbody>
+    </table>
+  </div>
+
+  <!-- Logging -->
+  <div class="config-section">
+    <div class="config-section-header">
+      <span class="config-section-title">📋 Logging</span>
+      <span class="restart-badge">⚠ Restart to apply</span>
+    </div>
+    <div class="config-grid">
+      <div class="config-field">
+        <label class="config-label">Log Level</label>
+        <select class="config-select" data-path="logging.level">
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Log Directory</label>
+        <input class="config-input" data-path="logging.log_dir" type="text" placeholder="data/logs">
+      </div>
+      <div class="config-field">
+        <label class="config-label">Rotation</label>
+        <input class="config-input" data-path="logging.rotation" type="text" placeholder="00:00">
+        <div class="config-hint">Time or size e.g. "00:00" or "100 MB"</div>
+      </div>
+      <div class="config-field">
+        <label class="config-label">Retention</label>
+        <input class="config-input" data-path="logging.retention" type="text" placeholder="30 days">
+      </div>
+    </div>
+  </div>
+
+  <!-- Save bar -->
+  <div class="config-save-bar">
+    <span class="config-save-note">⚠ Saving rewrites config.yaml — inline comments will be removed.<br>Fields marked "Restart to apply" take effect after restarting the bot.</span>
+    <button class="btn primary" id="saveConfigBtn"><span class="icon">💾</span> Save Configuration</button>
+  </div>
+
+</div><!-- /config-panel -->
+
+<script>
+const $ = id => document.getElementById(id);
+
+/* ──────────────────────────────────────────────────────────────
+   API helper
+────────────────────────────────────────────────────────────── */
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+function setStatus(msg) {
+  $('statusMsg').textContent = msg;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Provider table
+────────────────────────────────────────────────────────────── */
+const PROVIDER_DEFS = [
+  { key: 'marketaux',    label: 'Marketaux',    limitKey: 'limit' },
+  { key: 'stocknewsapi', label: 'StockNewsAPI', limitKey: 'items' },
+  { key: 'eodhd',        label: 'EODHD',        limitKey: 'limit' },
+  { key: 'marketstack',  label: 'Marketstack',  limitKey: null   },
+  { key: 'finnhub',      label: 'Finnhub',      limitKey: null   },
+  { key: 'stockgeist',   label: 'StockGeist',   limitKey: null   },
+];
+
+function buildProviderRows() {
+  const tbody = $('providerRows');
+  tbody.innerHTML = '';
+  PROVIDER_DEFS.forEach(def => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="pname">${def.label}</td>
+      <td class="penabled" style="text-align:center">
+        <label class="toggle" style="margin:0 auto;display:block;width:36px;height:20px">
+          <input type="checkbox" data-path="providers.${def.key}.enabled">
+          <span class="toggle-slider" style="border-radius:20px"></span>
+        </label>
+      </td>
+      <td>
+        <div class="pw-wrap">
+          <input class="config-input" data-path="providers.${def.key}.api_key" type="password" placeholder="API key" style="width:100%">
+          <button class="pw-eye" type="button" data-target="providers.${def.key}.api_key">👁</button>
+        </div>
+      </td>
+      <td>
+        ${def.limitKey
+          ? `<input class="config-input" data-path="providers.${def.key}.${def.limitKey}" data-type="int" type="number" min="1" max="100" style="width:70px" title="Max articles per request">`
+          : `<span style="color:var(--muted);font-size:12px">—</span>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Config helpers
+────────────────────────────────────────────────────────────── */
+function getNestedVal(obj, path) {
+  return path.split('.').reduce((o, k) => o?.[k], obj);
+}
+
+function populateConfig(cfg) {
+  document.querySelectorAll('[data-path]').forEach(el => {
+    const val = getNestedVal(cfg, el.dataset.path);
+    if (val === undefined || val === null) return;
+
+    if (el.type === 'checkbox') {
+      el.checked = !!val;
+    } else if (el.dataset.type === 'csv-array') {
+      el.value = Array.isArray(val) ? val.join(', ') : val;
+    } else if (el.type === 'range') {
+      el.value = val;
+      const span = el.nextElementSibling;
+      if (span && span.classList.contains('range-val'))
+        span.textContent = Math.round(val * 100) + '%';
+    } else {
+      el.value = val;
+    }
+  });
+}
+
+function collectConfig() {
+  const cfg = {};
+  document.querySelectorAll('[data-path]').forEach(el => {
+    const path = el.dataset.path.split('.');
+    let val;
+
+    if (el.type === 'checkbox') {
+      val = el.checked;
+    } else if (el.dataset.type === 'csv-array') {
+      val = el.value.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (el.dataset.type === 'float' || el.type === 'range') {
+      val = parseFloat(el.value) || 0;
+    } else if (el.dataset.type === 'int') {
+      val = parseInt(el.value, 10) || 0;
+    } else {
+      val = el.value;
+    }
+
+    let node = cfg;
+    path.forEach((key, i) => {
+      if (i === path.length - 1) node[key] = val;
+      else { if (!node[key]) node[key] = {}; node = node[key]; }
+    });
+  });
+  return cfg;
+}
+
+async function loadConfig() {
+  setStatus('Loading config…');
+  try {
+    const cfg = await api('GET', '/api/config');
+    populateConfig(cfg);
+    setStatus('Config loaded');
+  } catch(err) {
+    setStatus(`Failed to load config: ${err.message}`);
+  }
+}
+
+/* ── Password show/hide (event delegation) ── */
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.pw-eye');
+  if (!btn) return;
+  const target = btn.dataset.target;
+  const input = document.querySelector(`[data-path="${target}"]`);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+  btn.textContent = input.type === 'password' ? '👁' : '🙈';
+});
+
+$('saveConfigBtn').addEventListener('click', async () => {
+  const btn = $('saveConfigBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="icon">⏳</span> Saving…';
+  setStatus('Saving configuration…');
+  try {
+    const cfg = collectConfig();
+    await api('PUT', '/api/config', cfg);
+    setStatus('✓ Configuration saved');
+  } catch(err) {
+    setStatus(`Save failed: ${err.message}`);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<span class="icon">💾</span> Save Configuration';
+  }
+});
+
+/* ──────────────────────────────────────────────────────────────
+   Boot
+────────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', () => {
+  buildProviderRows();
+  loadConfig();
+});
+</script>
+</body>
+</html>
