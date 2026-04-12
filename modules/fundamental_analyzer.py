@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Any, Optional
 
 from loguru import logger
@@ -169,7 +169,7 @@ def _fetch_yf_info(yf_symbol: str) -> dict[str, Any]:
         "sector":          info.get("sector") or info.get("industry") or "—",
         "exchange":        info.get("exchange") or "SGX",
         "currency":        info.get("currency") or "SGD",
-        "fetched_at":      datetime.utcnow().isoformat() + "Z",
+        "fetched_at":      datetime.now(tz=timezone.utc).isoformat(),
 
         "valuation": {
             "market_cap":        market_cap,
@@ -254,7 +254,8 @@ class FundamentalAnalyzer:
                 data = json.load(f)
             fetched_at = data.get("fetched_at", "")
             if fetched_at:
-                age = (datetime.utcnow() - datetime.fromisoformat(fetched_at.rstrip("Z"))).total_seconds()
+                cached_dt = datetime.fromisoformat(fetched_at.replace("Z", "+00:00"))
+                age = (datetime.now(tz=cached_dt.tzinfo) - cached_dt).total_seconds()
                 if age < CACHE_TTL_SECONDS:
                     logger.debug(f"[Fundamentals] {ticker} — cache hit ({age/3600:.1f}h old)")
                     return data
@@ -281,11 +282,10 @@ class FundamentalAnalyzer:
         if cached:
             return cached
 
-        # Fetch synchronously in executor
         yf_symbol = f"{ticker}.SI"
         logger.info(f"[Fundamentals] Fetching {yf_symbol} via yfinance…")
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             data = await loop.run_in_executor(None, _fetch_yf_info, yf_symbol)
         except Exception as exc:
             logger.warning(f"[Fundamentals] Executor error for {ticker}: {exc}")

@@ -396,26 +396,86 @@ class TradingBot:
 
         logger.info(f"[{ticker}] ── Analysing {name} ──")
 
-        # ── 1. Real-time quote (Finnhub → Yahoo/SGX cache fallback) ──────
-        logger.info(f"[{ticker}] Fetching real-time quote from providers...")
-        quote_data: dict[str, Any] = {}
-        try:
-            quote_data = await self.provider_registry.fetch_quote(ticker)
-            if quote_data:
-                logger.info(
-                    f"[{ticker}] Quote ({quote_data.get('source','?')}) → "
-                    f"last={quote_data.get('last_price')} | "
-                    f"open={quote_data.get('open')} | "
-                    f"high={quote_data.get('high')} | "
-                    f"low={quote_data.get('low')} | "
-                    f"chg={quote_data.get('change_pct')}% | "
-                    f"prev={quote_data.get('prev_close')}"
-                )
-        except Exception as exc:
-            logger.warning(f"[{ticker}] Provider quote failed: {exc}")
+        # ── Fetch all data sources concurrently ───────────────────────────
+        # Quote, OHLCV, news, StockGeist, and fundamentals have no
+        # dependencies on each other — run them in parallel to cut wall time
+        # from sum(latencies) to max(latency).
 
-        if not quote_data:
-            # Use the price data already refreshed by Yahoo Finance in task_stock_selection
+        async def _get_quote() -> dict[str, Any]:
+            try:
+                return await self.provider_registry.fetch_quote(ticker) or {}
+            except Exception as exc:
+                logger.warning(f"[{ticker}] Provider quote failed: {exc}")
+                return {}
+
+        async def _get_ohlcv() -> list[dict[str, Any]]:
+            try:
+                return await self.provider_registry.fetch_ohlcv(ticker, days=5) or []
+            except Exception as exc:
+                logger.warning(f"[{ticker}] OHLCV fetch failed: {exc}")
+                return []
+
+        async def _get_news() -> list[dict[str, Any]]:
+            try:
+                return await self.news_fetcher.fetch_all(ticker, name=name)
+            except Exception as exc:
+                logger.warning(f"[{ticker}] News fetch failed: {exc}")
+                return []
+
+        async def _get_stockgeist() -> tuple:
+            """Returns (snapshot | None, series_summary_dict)."""
+            try:
+                snap = await self.provider_registry.fetch_sentiment(ticker)
+                series_summary: dict[str, Any] = {}
+                sg = self.provider_registry.get("stockgeist")
+                if sg and sg.enabled and hasattr(sg, "fetch_sentiment_series"):
+                    series = await sg.fetch_sentiment_series(ticker, hours=24, granularity="1h")
+                    if series:
+                        sc = [p["score"] for p in series if p.get("score") is not None]
+                        if len(sc) >= 2:
+                            trend = sc[-1] - sc[0]
+                            series_summary = {
+                                "trend_24h":     round(trend, 3),
+                                "series_avg":    round(sum(sc) / len(sc), 3),
+                                "series_points": len(sc),
+                            }
+                            logger.info(
+                                f"[{ticker}] StockGeist 24h: "
+                                f"start={sc[0]:.2f} → end={sc[-1]:.2f} "
+                                f"(Δ={trend:+.2f}) avg={series_summary['series_avg']:.2f}"
+                            )
+                return snap, series_summary
+            except Exception as exc:
+                logger.debug(f"[{ticker}] StockGeist fetch failed: {exc}")
+                return None, {}
+
+        async def _get_fundamentals() -> dict[str, Any]:
+            try:
+                return await self.fundamentals.fetch(ticker)
+            except Exception as exc:
+                logger.warning(f"[{ticker}] Fundamentals fetch failed: {exc}")
+                return {}
+
+        logger.info(f"[{ticker}] Fetching quote / OHLCV / news / sentiment / fundamentals concurrently…")
+        quote_data, kline, news, stockgeist_result, fundamentals = await asyncio.gather(
+            _get_quote(), _get_ohlcv(), _get_news(), _get_stockgeist(), _get_fundamentals()
+        )
+        sentiment_snap, sg_series = stockgeist_result
+
+        # ── Post-fetch: log results and apply fallbacks ───────────────────
+
+        if quote_data:
+            logger.info(
+                f"[{ticker}] Quote ({quote_data.get('source','?')}) → "
+                f"last={quote_data.get('last_price')} | "
+                f"open={quote_data.get('open')} | "
+                f"high={quote_data.get('high')} | "
+                f"low={quote_data.get('low')} | "
+                f"chg={quote_data.get('change_pct')}% | "
+                f"prev={quote_data.get('prev_close')}"
+            )
+        else:
+            # Fall back to price data from the earlier stock-selection scan
             quote_data = {
                 "ticker":     ticker,
                 "last_price": stock.get("last_price"),
@@ -434,105 +494,60 @@ class TradingBot:
                 f"source={quote_data.get('source')}"
             )
 
-        # ── 2. OHLCV bars (Marketstack → empty fallback) ──────────────────
-        logger.info(f"[{ticker}] Fetching OHLCV from providers (Marketstack)...")
-        kline: list[dict[str, Any]] = []
-        try:
-            kline = await self.provider_registry.fetch_ohlcv(ticker, days=5)
-            if kline:
-                logger.info(f"[{ticker}] OHLCV → {len(kline)} bars from provider")
-            else:
-                logger.info(f"[{ticker}] No OHLCV bars from providers — LLM will use quote data only")
-        except Exception as exc:
-            logger.warning(f"[{ticker}] OHLCV fetch failed: {exc}")
+        if kline:
+            logger.info(f"[{ticker}] OHLCV → {len(kline)} bars from provider")
+        else:
+            logger.info(f"[{ticker}] No OHLCV bars — LLM will use quote data only")
 
-        # ── 3. News (Finnhub + EODHD + RSS scrapers) ─────────────────────
-        logger.info(f"[{ticker}] Fetching news (all sources) — search term: '{name or ticker}'")
-        news: list[dict[str, Any]] = []
-        try:
-            news = await self.news_fetcher.fetch_all(ticker, name=name)
-            logger.info(f"[{ticker}] News → {len(news)} articles total")
-            for article in news[:5]:
-                logger.info(f"  [{article.get('source','?')}] {article.get('headline','')[:80]}")
-            if len(news) > 5:
-                logger.info(f"  ... and {len(news) - 5} more")
-        except Exception as exc:
-            logger.warning(f"[{ticker}] News fetch failed: {exc}")
+        logger.info(f"[{ticker}] News → {len(news)} articles total")
+        for article in news[:5]:
+            logger.info(f"  [{article.get('source','?')}] {article.get('headline','')[:80]}")
+        if len(news) > 5:
+            logger.info(f"  ... and {len(news) - 5} more")
 
-        # ── 4. Sentiment — StockGeist snapshot + 24h time series ─────────
+        # Build StockGeist summary and prepend snapshot as a synthetic news item
         stockgeist_summary: dict[str, Any] = {}
-        try:
-            # Snapshot (score right now)
-            sentiment_snap = await self.provider_registry.fetch_sentiment(ticker)
-            if sentiment_snap:
-                logger.info(
-                    f"[{ticker}] StockGeist snapshot → "
-                    f"score={sentiment_snap.get('score')} | "
-                    f"pos={sentiment_snap.get('pos_count')} neg={sentiment_snap.get('neg_count')}"
-                )
-                stockgeist_summary["now"] = sentiment_snap
+        if sentiment_snap:
+            logger.info(
+                f"[{ticker}] StockGeist snapshot → "
+                f"score={sentiment_snap.get('score')} | "
+                f"pos={sentiment_snap.get('pos_count')} neg={sentiment_snap.get('neg_count')}"
+            )
+            stockgeist_summary["now"] = sentiment_snap
+            stockgeist_summary.update(sg_series)
+            news.insert(0, {
+                "source":       sentiment_snap.get("source", "StockGeist"),
+                "headline": (
+                    f"[StockGeist] {ticker} social sentiment score: "
+                    f"{sentiment_snap.get('score', 0):.2f} | "
+                    f"pos={sentiment_snap.get('pos_count', 0)} "
+                    f"neg={sentiment_snap.get('neg_count', 0)} mentions"
+                ),
+                "summary": (
+                    f"Real-time StockGeist sentiment for {ticker}. "
+                    f"Total mentions last hour: {sentiment_snap.get('total_count', 0)}."
+                ),
+                "published_at": sentiment_snap.get("timestamp", ""),
+                "sentiment":    sentiment_snap.get("score"),
+            })
 
-                # Inject snapshot as first news item so the LLM sees it
-                news.insert(0, {
-                    "source":       sentiment_snap.get("source", "StockGeist"),
-                    "headline":     (
-                        f"[StockGeist] {ticker} social sentiment score: "
-                        f"{sentiment_snap.get('score', 0):.2f} | "
-                        f"pos={sentiment_snap.get('pos_count', 0)} "
-                        f"neg={sentiment_snap.get('neg_count', 0)} mentions"
-                    ),
-                    "summary":      (
-                        f"Real-time StockGeist sentiment for {ticker}. "
-                        f"Total mentions last hour: {sentiment_snap.get('total_count', 0)}."
-                    ),
-                    "published_at": sentiment_snap.get("timestamp", ""),
-                    "sentiment":    sentiment_snap.get("score"),
-                })
-
-            # 24-hour trend (if StockGeist provider supports it)
-            sg_provider = self.provider_registry.get("stockgeist")
-            if sg_provider and sg_provider.enabled and hasattr(sg_provider, "fetch_sentiment_series"):
-                series = await sg_provider.fetch_sentiment_series(ticker, hours=24, granularity="1h")
-                if series:
-                    scores = [p["score"] for p in series if p.get("score") is not None]
-                    if len(scores) >= 2:
-                        trend = scores[-1] - scores[0]
-                        stockgeist_summary["trend_24h"] = round(trend, 3)
-                        stockgeist_summary["series_avg"] = round(sum(scores) / len(scores), 3)
-                        stockgeist_summary["series_points"] = len(scores)
-                        logger.info(
-                            f"[{ticker}] StockGeist 24h trend: "
-                            f"start={scores[0]:.2f} → end={scores[-1]:.2f} "
-                            f"(Δ={trend:+.2f}) avg={stockgeist_summary['series_avg']:.2f}"
-                        )
-        except Exception as exc:
-            logger.debug(f"[{ticker}] StockGeist fetch failed: {exc}")
-
-        # ── 5. Fundamental analysis (yfinance, 24-hour cache) ────────────
-        logger.info(f"[{ticker}] Fetching fundamental data (yfinance)…")
-        fundamentals: dict[str, Any] = {}
-        try:
-            fundamentals = await self.fundamentals.fetch(ticker)
-            if "error" not in fundamentals:
-                qs  = fundamentals.get("quality_score")
-                val = fundamentals.get("valuation", {})
-                div = fundamentals.get("dividends", {})
-                logger.info(
-                    f"[{ticker}] Fundamentals → "
-                    f"quality_score={qs} | "
-                    f"pe={val.get('trailing_pe')} | "
-                    f"pb={val.get('price_to_book')} | "
-                    f"div_yield={div.get('yield_pct')} | "
-                    f"market_cap={val.get('market_cap_fmt')}"
-                )
-            else:
+        if fundamentals and "error" not in fundamentals:
+            qs  = fundamentals.get("quality_score")
+            val = fundamentals.get("valuation", {})
+            div = fundamentals.get("dividends", {})
+            logger.info(
+                f"[{ticker}] Fundamentals → "
+                f"quality_score={qs} | "
+                f"pe={val.get('trailing_pe')} | "
+                f"pb={val.get('price_to_book')} | "
+                f"div_yield={div.get('yield_pct')} | "
+                f"market_cap={val.get('market_cap_fmt')}"
+            )
+        else:
+            if fundamentals and fundamentals.get("error"):
                 logger.warning(f"[{ticker}] Fundamentals not available: {fundamentals.get('error')}")
-                fundamentals = {}
-        except Exception as exc:
-            logger.warning(f"[{ticker}] Fundamentals fetch failed: {exc}")
             fundamentals = {}
 
-        # ── 6. Data summary before LLM call ──────────────────────────────
         scored_news = [a for a in news if a.get("sentiment") is not None]
         logger.info(
             f"[{ticker}] Data ready → "
@@ -543,15 +558,13 @@ class TradingBot:
             f"fundamentals={'yes' if fundamentals else 'no'}"
         )
 
-        # ── 7. Volume info for signal engine filtering ────────────────────
-        volume    = quote_data.get("volume") or stock.get("volume")
+        volume = quote_data.get("volume") or stock.get("volume")
         vol_info: dict[str, Any] = {"volume": volume, "avg_volume_20d": None}
         if kline:
             vols = [b.get("volume") for b in kline if b.get("volume")]
             if vols:
                 vol_info["avg_volume_20d"] = sum(vols) / len(vols)
 
-        # ── 8. LLM Call B — generate signal (all data sources) ────────────
         signal = await self.analyst.analyse_stock(
             ticker=ticker,
             name=name,

@@ -503,21 +503,22 @@ class LLMAnalyst:
             t0 = time.monotonic()
             round_num = 0
 
+            # Defined once per model attempt; restarted each tool round.
+            async def _heartbeat() -> None:
+                tick = 0
+                while True:
+                    await asyncio.sleep(5)
+                    tick += 5
+                    logger.info(f"{tag} ... still waiting ({tick}s elapsed) ...")
+
             try:
                 while round_num <= MAX_TOOL_ROUNDS:
                     round_num += 1
                     logger.info(f"{tag} Sending to Ollama (round {round_num}/{MAX_TOOL_ROUNDS}) ...")
 
-                    async def _heartbeat(t=tag) -> None:
-                        tick = 0
-                        while True:
-                            await asyncio.sleep(5)
-                            tick += 5
-                            logger.info(f"{t} ... still waiting ({tick}s elapsed) ...")
-
                     heartbeat = asyncio.create_task(_heartbeat())
                     try:
-                        response = await asyncio.get_event_loop().run_in_executor(
+                        response = await asyncio.get_running_loop().run_in_executor(
                             None,
                             lambda m=model, msgs=messages, tls=active_tools, tk=think: _ollama.chat(
                                 model=m,
@@ -770,8 +771,9 @@ class LLMAnalyst:
 
         # Volume ratio: today's vol vs 5d average
         vol_ratio_str = "N/A"
-        if volumes and len(volumes) >= 2:
-            avg_vol5 = sum(volumes[:-1][-4:]) / len(volumes[:-1][-4:]) if len(volumes) > 1 else None
+        if len(volumes) >= 2:
+            prev_vols = volumes[:-1][-4:]   # up to 4 prior days (excludes today)
+            avg_vol5  = sum(prev_vols) / len(prev_vols) if prev_vols else None
             today_vol = volumes[-1]
             if avg_vol5 and avg_vol5 > 0:
                 ratio = today_vol / avg_vol5
