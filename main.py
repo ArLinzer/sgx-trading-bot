@@ -45,6 +45,7 @@ from loguru import logger
 from pydantic import BaseModel
 from zoneinfo import ZoneInfo
 
+from modules.fundamental_analyzer import FundamentalAnalyzer
 from modules.llm_analyst import LLMAnalyst
 from modules.news_fetcher import NewsFetcher
 from modules.providers.registry import ProviderRegistry
@@ -161,6 +162,7 @@ class TradingBot:
         tg_cfg  = cfg.get("telegram", {})
 
         self.scanner          = SGXScanner(cache_dir=cache_dir)
+        self.fundamentals     = FundamentalAnalyzer(cache_dir=cache_dir)
         self.provider_registry = ProviderRegistry(cfg.get("providers", {}))
         self.news_fetcher     = NewsFetcher(provider_registry=self.provider_registry)
         self.analyst          = LLMAnalyst(
@@ -1035,6 +1037,40 @@ def create_health_app(bot: TradingBot) -> FastAPI:
 
         matches.sort(key=rank)
         return matches[:15]
+
+    # ── Fundamental analysis ───────────────────────────────────────────
+    @app.get("/api/fundamentals/{ticker}")
+    async def get_fundamentals(ticker: str):
+        """
+        Return fundamental data for a single SGX ticker.
+        Cached on disk for 24 h; first call may take ~3 s (yfinance network).
+        """
+        data = await bot.fundamentals.fetch(ticker.upper())
+        if "error" in data:
+            return JSONResponse(status_code=404, content=data)
+        return data
+
+    @app.get("/api/fundamentals")
+    async def get_fundamentals_batch(tickers: str = ""):
+        """
+        Return fundamentals for a comma-separated list of tickers.
+        E.g. /api/fundamentals?tickers=D05,O39,A17U
+        """
+        if not tickers.strip():
+            return {}
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        return await bot.fundamentals.fetch_batch(ticker_list)
+
+    @app.delete("/api/fundamentals/cache/{ticker}")
+    async def clear_fundamentals_cache(ticker: str):
+        """Force-clear the cached fundamental data for one ticker."""
+        import glob as _glob
+        path = bot.fundamentals._cache_path(ticker.upper())
+        try:
+            os.remove(path)
+            return {"cleared": ticker.upper()}
+        except FileNotFoundError:
+            return JSONResponse(status_code=404, content={"detail": "No cache entry found"})
 
     # ── Config read / write ────────────────────────────────────────────
     @app.get("/api/config")

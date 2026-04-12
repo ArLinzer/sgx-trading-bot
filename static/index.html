@@ -171,6 +171,40 @@ main{flex:1;display:flex;flex-direction:column;overflow:hidden}
 .config-save-bar{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
 .config-save-note{font-size:11px;color:var(--muted);flex:1}
 
+/* ── Fundamentals modal ── */
+.fund-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
+.fund-overlay.open{display:flex}
+.fund-modal{background:var(--surface);border:1px solid var(--border2);border-radius:var(--radius);width:min(860px,96vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,.6);animation:fadeIn .2s ease}
+.fund-modal-head{display:flex;align-items:flex-start;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--border);flex-shrink:0}
+.fund-ticker-big{font-size:22px;font-weight:800;color:var(--accent)}
+.fund-company{font-size:14px;font-weight:600;color:var(--text);margin-top:2px}
+.fund-sector{font-size:12px;color:var(--muted);margin-top:2px}
+.fund-head-right{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.fund-score{display:flex;align-items:center;gap:8px}
+.fund-score-label{font-size:11px;color:var(--muted)}
+.fund-score-val{font-size:20px;font-weight:800}
+.fund-score-val.high{color:var(--buy)}.fund-score-val.mid{color:var(--hold)}.fund-score-val.low{color:var(--sell)}
+.fund-price-row{font-size:12px;color:var(--muted)}
+.fund-close-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px;padding:4px 8px;border-radius:4px;line-height:1;transition:color .1s;flex-shrink:0}
+.fund-close-btn:hover{color:var(--text);background:var(--surface2)}
+.fund-modal-body{overflow-y:auto;padding:16px 20px;flex:1}
+.fund-section{margin-bottom:20px}
+.fund-section-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.fund-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1px;background:var(--border);border-radius:6px;overflow:hidden}
+.fund-cell{background:var(--surface2);padding:11px 14px;display:flex;flex-direction:column;gap:3px}
+.fund-cell-label{font-size:11px;color:var(--muted);font-weight:500}
+.fund-cell-val{font-size:15px;font-weight:700;color:var(--text)}
+.fund-cell-val.pos{color:var(--buy)}.fund-cell-val.neg{color:var(--sell)}.fund-cell-val.muted{color:var(--muted)}
+.fund-cell-sub{font-size:11px;color:var(--muted)}
+.fund-bar-wrap{margin-top:4px;height:3px;background:var(--border);border-radius:2px;overflow:hidden}
+.fund-bar{height:100%;border-radius:2px;background:var(--accent)}
+.fund-loading{text-align:center;padding:48px;color:var(--muted);font-size:14px}
+.fund-error{text-align:center;padding:36px;color:var(--sell);font-size:13px}
+.fund-refresh-btn{font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;padding:2px 4px;text-decoration:underline}
+/* 📊 button on watchlist items */
+.wl-fund-btn{background:none;border:1px solid var(--border2);color:var(--muted);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;line-height:1.4;transition:color .1s,border-color .1s,background .1s;flex-shrink:0}
+.wl-fund-btn:hover{color:var(--accent);border-color:var(--accent);background:rgba(31,111,235,.1)}
+
 /* scrollbar */
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -647,7 +681,7 @@ function renderWatchlist() {
   state.watchlist.forEach(w => {
     const div = document.createElement('div');
     div.className = 'wl-item';
-    div.innerHTML = `<span class="wl-ticker">${w.ticker}</span><span class="wl-name" title="${w.name}">${w.name}</span><button class="wl-remove" data-ticker="${w.ticker}" title="Remove">✕</button>`;
+    div.innerHTML = `<span class="wl-ticker">${w.ticker}</span><span class="wl-name" title="${w.name}">${w.name}</span><button class="wl-fund-btn" data-ticker="${w.ticker}" title="Fundamental analysis">📊</button><button class="wl-remove" data-ticker="${w.ticker}" title="Remove">✕</button>`;
     list.appendChild(div);
   });
 }
@@ -745,10 +779,15 @@ async function addToWatchlist(ticker, name) {
   catch(err) { setStatus(`Failed to add ${ticker}: ${err.message}`); }
 }
 $('wlList').addEventListener('click', async e => {
-  const btn = e.target.closest('.wl-remove'); if (!btn) return;
-  const ticker = btn.dataset.ticker;
-  try { await api('DELETE', `/api/watchlist/${ticker}`); state.watchlist=state.watchlist.filter(w=>w.ticker!==ticker); renderWatchlist(); setStatus(`Removed ${ticker} from watchlist`); }
-  catch(err) { setStatus(`Failed to remove: ${err.message}`); }
+  const removeBtn = e.target.closest('.wl-remove');
+  if (removeBtn) {
+    const ticker = removeBtn.dataset.ticker;
+    try { await api('DELETE', `/api/watchlist/${ticker}`); state.watchlist=state.watchlist.filter(w=>w.ticker!==ticker); renderWatchlist(); setStatus(`Removed ${ticker} from watchlist`); }
+    catch(err) { setStatus(`Failed to remove: ${err.message}`); }
+    return;
+  }
+  const fundBtn = e.target.closest('.wl-fund-btn');
+  if (fundBtn) { openFundamentals(fundBtn.dataset.ticker); }
 });
 
 /* ──────────────────────────────────────────────────────────────
@@ -971,7 +1010,201 @@ async function boot() {
   connectWS();
 }
 
+/* ══════════════════════════════════════════════════════════════
+   FUNDAMENTAL ANALYSIS — modal open / render
+══════════════════════════════════════════════════════════════ */
+
+function openFundamentals(ticker) {
+  // Reset modal to loading state
+  $('fundOverlay').classList.add('open');
+  $('fundTicker').textContent  = ticker;
+  $('fundCompany').textContent = '';
+  $('fundSector').textContent  = '';
+  $('fundScore').textContent   = '—';
+  $('fundScore').className     = 'fund-score-val';
+  $('fundPriceRow').textContent = '';
+  $('fundBody').innerHTML      = '<div class="fund-loading">⏳ Fetching fundamentals from Yahoo Finance…</div>';
+
+  fetch(`/api/fundamentals/${ticker}`)
+    .then(r => r.json())
+    .then(data => renderFundamentals(data))
+    .catch(err => {
+      $('fundBody').innerHTML = `<div class="fund-error">❌ Failed to load: ${err.message}</div>`;
+    });
+}
+
+function closeFundamentals() {
+  $('fundOverlay').classList.remove('open');
+}
+
+$('fundCloseBtn').addEventListener('click', closeFundamentals);
+$('fundOverlay').addEventListener('click', e => { if (e.target === $('fundOverlay')) closeFundamentals(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFundamentals(); });
+
+function fmtVal(v, suffix='', na='—') {
+  if (v === null || v === undefined) return `<span class="fund-cell-val muted">${na}</span>`;
+  return `<span class="fund-cell-val">${v}${suffix}</span>`;
+}
+
+function fmtPct(v, na='—') {
+  if (v === null || v === undefined) return `<span class="fund-cell-val muted">${na}</span>`;
+  const n = parseFloat(v);
+  const cls = n > 0 ? 'pos' : n < 0 ? 'neg' : '';
+  return `<span class="fund-cell-val ${cls}">${v}</span>`;
+}
+
+function fundCell(label, valHtml, sub='') {
+  return `<div class="fund-cell">
+    <div class="fund-cell-label">${label}</div>
+    ${valHtml}
+    ${sub ? `<div class="fund-cell-sub">${sub}</div>` : ''}
+  </div>`;
+}
+
+function renderFundamentals(d) {
+  if (d.error) {
+    $('fundBody').innerHTML = `<div class="fund-error">❌ ${d.error}<br><br>
+      <button class="fund-refresh-btn" onclick="openFundamentals('${d.ticker||''}')">Retry</button></div>`;
+    return;
+  }
+
+  // Header
+  $('fundTicker').textContent  = d.ticker;
+  $('fundCompany').textContent = d.name || '';
+  $('fundSector').textContent  = [d.sector, d.currency ? d.currency + ' listed' : ''].filter(Boolean).join(' · ');
+
+  // Quality score
+  const qs = d.quality_score;
+  if (qs !== null && qs !== undefined) {
+    $('fundScore').textContent = qs.toFixed(0);
+    $('fundScore').className   = 'fund-score-val ' + (qs >= 60 ? 'high' : qs >= 35 ? 'mid' : 'low');
+  }
+
+  // Current price
+  const tech = d.technicals || {};
+  if (tech.current_price) {
+    $('fundPriceRow').textContent = `Current: ${tech.current_price}`;
+  }
+
+  const val  = d.valuation  || {};
+  const inc  = d.income     || {};
+  const bal  = d.balance    || {};
+  const div  = d.dividends  || {};
+
+  // 52-week bar
+  let wk52Bar = '';
+  if (tech.wk52_position_pct !== null && tech.wk52_position_pct !== undefined) {
+    wk52Bar = `<div class="fund-bar-wrap"><div class="fund-bar" style="width:${tech.wk52_position_pct}%"></div></div>
+    <div class="fund-cell-sub">${tech.wk52_position_pct}% of 52W range</div>`;
+  }
+
+  $('fundBody').innerHTML = `
+
+    <!-- Valuation -->
+    <div class="fund-section">
+      <div class="fund-section-title">📈 Valuation</div>
+      <div class="fund-grid">
+        ${fundCell('Market Cap',    fmtVal(val.market_cap_fmt))}
+        ${fundCell('P/E (Trailing)',fmtVal(val.trailing_pe),  val.forward_pe ? `Forward: ${val.forward_pe}` : '')}
+        ${fundCell('Price / Book',  fmtVal(val.price_to_book))}
+        ${fundCell('EV / EBITDA',   fmtVal(val.ev_to_ebitda))}
+        ${fundCell('Enterprise Value', fmtVal(val.ev_fmt))}
+      </div>
+    </div>
+
+    <!-- Income -->
+    <div class="fund-section">
+      <div class="fund-section-title">💰 Income (TTM)</div>
+      <div class="fund-grid">
+        ${fundCell('Revenue',       fmtVal(inc.revenue_fmt))}
+        ${fundCell('Net Income',    fmtVal(inc.net_income_fmt))}
+        ${fundCell('EPS',           fmtVal(inc.eps_trailing),  inc.eps_forward ? `Forward: ${inc.eps_forward}` : '')}
+        ${fundCell('Net Margin',    fmtPct(inc.net_margin_pct))}
+        ${fundCell('Gross Margin',  fmtPct(inc.gross_margin_pct))}
+        ${fundCell('Op. Margin',    fmtPct(inc.operating_margin_pct))}
+        ${fundCell('Revenue Growth YoY', fmtPct(inc.revenue_growth_pct))}
+        ${fundCell('Earnings Growth YoY', fmtPct(inc.earnings_growth_pct))}
+      </div>
+    </div>
+
+    <!-- Balance Sheet -->
+    <div class="fund-section">
+      <div class="fund-section-title">🏦 Balance Sheet</div>
+      <div class="fund-grid">
+        ${fundCell('Debt / Equity',   fmtVal(bal.debt_to_equity))}
+        ${fundCell('Current Ratio',   fmtVal(bal.current_ratio))}
+        ${fundCell('Book Value/Share',fmtVal(bal.book_value_per_share))}
+        ${fundCell('ROE',             fmtPct(bal.roe_pct))}
+        ${fundCell('ROA',             fmtPct(bal.roa_pct))}
+        ${fundCell('Free Cash Flow',  fmtVal(bal.free_cashflow_fmt))}
+      </div>
+    </div>
+
+    <!-- Dividends -->
+    <div class="fund-section">
+      <div class="fund-section-title">💎 Dividends</div>
+      <div class="fund-grid">
+        ${fundCell('Dividend Yield',  fmtPct(div.yield_pct))}
+        ${fundCell('Annual DPS',      fmtVal(div.annual_dps))}
+        ${fundCell('Payout Ratio',    fmtPct(div.payout_ratio_pct))}
+        ${fundCell('Ex-Dividend Date',fmtVal(div.ex_dividend_date))}
+      </div>
+    </div>
+
+    <!-- Technicals -->
+    <div class="fund-section">
+      <div class="fund-section-title">📉 Technicals</div>
+      <div class="fund-grid">
+        <div class="fund-cell">
+          <div class="fund-cell-label">52-Week Range</div>
+          <span class="fund-cell-val">${tech.wk52_low ?? '—'} – ${tech.wk52_high ?? '—'}</span>
+          ${wk52Bar}
+        </div>
+        ${fundCell('Beta',          fmtVal(tech.beta))}
+        ${fundCell('Avg Vol (10d)', fmtVal(tech.avg_volume_10d ? Number(tech.avg_volume_10d).toLocaleString() : null))}
+      </div>
+    </div>
+
+    <div style="text-align:right;font-size:11px;color:var(--muted);margin-top:4px">
+      Source: Yahoo Finance · Cached 24h ·
+      <button class="fund-refresh-btn" onclick="clearAndRefetch('${d.ticker}')">Force refresh</button>
+    </div>
+  `;
+}
+
+async function clearAndRefetch(ticker) {
+  $('fundBody').innerHTML = '<div class="fund-loading">⏳ Clearing cache and refreshing…</div>';
+  try {
+    await fetch(`/api/fundamentals/cache/${ticker}`, { method: 'DELETE' });
+  } catch(_) {}
+  openFundamentals(ticker);
+}
+
 boot();
 </script>
+
+<!-- ── Fundamentals Modal ── -->
+<div class="fund-overlay" id="fundOverlay">
+  <div class="fund-modal" id="fundModal">
+    <div class="fund-modal-head" id="fundHead">
+      <div>
+        <div class="fund-ticker-big" id="fundTicker">—</div>
+        <div class="fund-company"   id="fundCompany"></div>
+        <div class="fund-sector"    id="fundSector"></div>
+      </div>
+      <div class="fund-head-right">
+        <div class="fund-score">
+          <span class="fund-score-label">Quality Score</span>
+          <span class="fund-score-val" id="fundScore">—</span>
+        </div>
+        <div class="fund-price-row" id="fundPriceRow"></div>
+      </div>
+      <button class="fund-close-btn" id="fundCloseBtn" title="Close">✕</button>
+    </div>
+    <div class="fund-modal-body" id="fundBody">
+      <div class="fund-loading">Loading fundamentals…</div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
