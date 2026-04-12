@@ -180,51 +180,65 @@ Example:
 IMPORTANT: Output ONLY the JSON array. No other text."""
 
 
-STRATEGY_PROMPT_TEMPLATE = """You are a day trading analyst. Analyse the following data for {ticker} ({name}) and generate a trading signal.
+STRATEGY_PROMPT_TEMPLATE = """You are a day trading analyst. Analyse ALL of the following data for {ticker} ({name}) and generate a trading signal.
 
-PRICE & VOLUME DATA (last 5 days OHLCV, newest last):
+━━━ 1. PRICE & VOLUME — OHLCV (last 5 days, oldest → newest) ━━━
 {ohlcv_json}
 
-INTRADAY QUOTE:
+━━━ 2. TECHNICAL INDICATORS (pre-computed from OHLCV + quote) ━━━
+{technicals_text}
+
+━━━ 3. INTRADAY QUOTE ━━━
 {quote_json}
 
-ORDER BOOK SNAPSHOT (top 5 levels):
-{orderbook_json}
-
-NEWS & ANNOUNCEMENTS (last 24 hours, newest first):
+━━━ 4. NEWS & ANNOUNCEMENTS (last 24 h, newest first, with sentiment where available) ━━━
 {news_json}
 
-FUNDAMENTAL DATA (source: Yahoo Finance, refreshed daily):
+━━━ 5. SENTIMENT ANALYSIS (aggregate across all news providers) ━━━
+{sentiment_text}
+
+━━━ 6. FUNDAMENTAL DATA (Yahoo Finance, refreshed daily) ━━━
 {fundamentals_text}
 
-HOW TO USE FUNDAMENTALS IN YOUR SIGNAL:
-- Valuation: A low P/E relative to sector supports BUY on dips; extreme overvaluation raises caution on BUY signals.
-- Quality Score (0–100): Scores ≥60 = financially healthy; ≤30 = weak fundamentals — reduce confidence on BUY signals.
-- Dividend catalyst: If ex-dividend date is within 5 days, factor in dividend capture/drop-off dynamics.
-- 52-week position: Stock near 52W high (>85%) with strong fundamentals = breakout candidate. Near 52W low (<15%) with good fundamentals = potential reversal.
-- Growth: Positive revenue/earnings growth strengthens BUY momentum signals. Negative growth increases SELL/WATCH bias unless news-driven.
-- Debt/Equity: Very high D/E (>200 for non-financials) adds downside risk — lower confidence on BUY.
-- Beta: High beta (>1.5) means larger intraday swings — widen stop-loss range accordingly.
-- For day trading, give more weight to price/news/volume than to long-term fundamentals, but use fundamentals to VALIDATE or CONTRADICT the technical signal.
+━━━ HOW TO WEIGHT EACH DATA SOURCE ━━━
+Priority for day trading (highest → lowest):
+  1. News catalysts  — earnings, SGX announcements, M&A, regulatory changes → drives intraday moves
+  2. Technical setup — price vs SMA, volume ratio, range position → confirms entry timing
+  3. Sentiment trend — StockGeist score + 24h trend, news sentiment aggregate → crowd momentum
+  4. Intraday quote  — live price, today's range, change % → exact entry/stop calibration
+  5. Fundamentals    — quality score, P/E, dividends, debt → VALIDATE or CONTRADICT the signal
+
+SPECIFIC RULES:
+- Fundamentals quality score ≥60: raise confidence +0.05; ≤30: lower confidence −0.10 on BUY.
+- StockGeist score >0.3 (bullish) + rising 24h trend: supports BUY momentum.
+- StockGeist score <−0.3 (bearish) + falling 24h trend: supports SELL / reduces BUY confidence.
+- Avg news sentiment >+0.3 (3+ articles): add "news_catalyst" to reasoning. <−0.3: flag as risk.
+- SMA crossover (price crosses above SMA20 on above-avg volume): strong BUY signal.
+- Volume ratio >2×: confirms breakout or reversal. <0.5×: low conviction, prefer WATCH.
+- Ex-dividend within 5 days: consider "dividend_capture" strategy (BUY before, exit same day).
+- 52W position >85% + strong fundamentals + positive news: momentum continuation BUY.
+- 52W position <15% + good fundamentals + no negative news: potential mean-reversion BUY.
+- Debt/Equity >200 (non-financials): downside risk — reduce confidence on BUY by −0.08.
+- Beta >1.5: widen stop-loss by ≥1.5× normal range.
 
 Trading constraints:
 - Day trading only — all positions MUST be closed before market close (17:00 SGT)
 - SGX market hours: 09:00–17:00 SGT (lunch break 12:00–14:00)
 - Singapore dollars (SGD)
 
-Task: Generate ONE trading signal.
+Task: Synthesise ALL six data sources above into ONE trading signal.
 Return ONLY a JSON object with exactly these keys:
-  "ticker"              : string  — SGX stock code
-  "action"              : string  — one of "BUY", "SELL", "HOLD", "WATCH"
-  "entry_price"         : number  — suggested entry price (null if HOLD/WATCH)
-  "target_price"        : number  — profit target price (null if HOLD/WATCH)
-  "stop_loss"           : number  — stop loss price (null if HOLD/WATCH)
-  "confidence"          : number  — confidence score between 0.0 and 1.0
-  "strategy"            : string  — one of "momentum", "news_catalyst", "breakout", "mean_reversion", "range_trade", "fundamental_value", "dividend_capture"
-  "reasoning"           : string  — 2-3 sentence explanation including how fundamentals influenced the signal
-  "time_horizon"        : string  — always "intraday"
-  "exit_before_eod"     : boolean — always true
-  "news_sources"        : array   — list of source names that influenced the signal
+  "ticker"          : string  — SGX stock code
+  "action"          : string  — one of "BUY", "SELL", "HOLD", "WATCH"
+  "entry_price"     : number  — suggested entry price (null if HOLD/WATCH)
+  "target_price"    : number  — profit target price (null if HOLD/WATCH)
+  "stop_loss"       : number  — stop loss price (null if HOLD/WATCH)
+  "confidence"      : number  — confidence score 0.0–1.0 (apply the rules above)
+  "strategy"        : string  — one of "momentum", "news_catalyst", "breakout", "mean_reversion", "range_trade", "fundamental_value", "dividend_capture", "sentiment_driven"
+  "reasoning"       : string  — 3-4 sentences covering: (a) primary catalyst from news, (b) technical confirmation, (c) sentiment posture, (d) how fundamentals validated or flagged risk
+  "time_horizon"    : string  — always "intraday"
+  "exit_before_eod" : boolean — always true
+  "news_sources"    : array   — names of all sources that materially influenced the signal
 
 Example:
 {{
@@ -233,12 +247,12 @@ Example:
   "entry_price": 38.50,
   "target_price": 39.10,
   "stop_loss": 38.20,
-  "confidence": 0.82,
+  "confidence": 0.83,
   "strategy": "news_catalyst",
-  "reasoning": "DBS reported Q3 earnings beat (+12% NII). Price broke above 20-day SMA on 2x avg volume. Fundamentals support the move: P/E of 10.2x is below sector avg, ROE of 16% is strong, quality score 77/100. 52W position at 88% signals momentum continuation.",
+  "reasoning": "SGX announcement of Q3 earnings beat (+12% NII) is the primary catalyst. Price sits 2% above SMA20 on 2.1× avg volume — strong technical confirmation of breakout. StockGeist score +0.41 (bullish, trending up from +0.18 yesterday) and avg news sentiment +0.38 across 6 articles confirm positive crowd momentum. Fundamentals (quality score 77, P/E 15×, ROE 16%) validate the move — stock is fairly valued, not overextended.",
   "time_horizon": "intraday",
   "exit_before_eod": true,
-  "news_sources": ["Business Times", "SGX Announcements"]
+  "news_sources": ["SGX Announcements", "Business Times", "Marketaux", "StockGeist"]
 }}
 
 IMPORTANT: Output ONLY the JSON object. No other text."""
@@ -323,6 +337,7 @@ class LLMAnalyst:
         order_book: dict[str, Any],
         news: list[dict[str, Any]],
         fundamentals: Optional[dict[str, Any]] = None,
+        stockgeist: Optional[dict[str, Any]] = None,
     ) -> Optional[TradingSignal]:
         """
         Generate a single trading signal for a stock using all available data.
@@ -335,23 +350,28 @@ class LLMAnalyst:
         Returns:
             Validated TradingSignal, or None on error.
         """
-        # Slim down news to avoid exceeding context window
+        # Slim news — include sentiment score where available
         slimmed_news = [
             {
-                "source": n.get("source", ""),
-                "headline": n.get("headline", ""),
-                "summary": (n.get("summary") or "")[:200],
+                "source":       n.get("source", ""),
+                "headline":     n.get("headline", ""),
+                "summary":      (n.get("summary") or "")[:200],
                 "published_at": n.get("published_at", ""),
+                **({"sentiment": round(float(n["sentiment"]), 3)}
+                   if n.get("sentiment") is not None else {}),
             }
-            for n in news[:15]
+            for n in news[:20]
         ]
 
-        fund_text = self._format_fundamentals(fundamentals)
+        tech_text  = self._format_technicals(ohlcv, quote)
+        sent_text  = self._format_sentiment_summary(news, stockgeist)
+        fund_text  = self._format_fundamentals(fundamentals)
 
         logger.info(
             f"[LLM] Call B — Strategy | ticker={ticker} ({name}) | model={self.model} "
             f"| ohlcv_bars={len(ohlcv)} | news_items={len(slimmed_news)} "
-            f"| order_book={'yes' if order_book else 'no'} | quote={'yes' if quote else 'no'} "
+            f"| scored_news={sum(1 for n in news if n.get('sentiment') is not None)} "
+            f"| stockgeist={'yes' if stockgeist else 'no'} "
             f"| fundamentals={'yes' if fundamentals and 'error' not in fundamentals else 'no'}"
         )
 
@@ -359,13 +379,10 @@ class LLMAnalyst:
             ticker=ticker,
             name=name,
             ohlcv_json=json.dumps(ohlcv, indent=2),
+            technicals_text=tech_text,
             quote_json=json.dumps(quote, indent=2),
-            orderbook_json=json.dumps(
-                {"bids": (order_book.get("bids") or [])[:5],
-                 "asks": (order_book.get("asks") or [])[:5]},
-                indent=2,
-            ),
             news_json=json.dumps(slimmed_news, indent=2),
+            sentiment_text=sent_text,
             fundamentals_text=fund_text,
         )
 
@@ -694,6 +711,181 @@ class LLMAnalyst:
     # ------------------------------------------------------------------
     # Prompt construction helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_technicals(
+        ohlcv: list[dict[str, Any]],
+        quote: dict[str, Any],
+    ) -> str:
+        """
+        Pre-compute technical indicators from raw OHLCV + quote data and
+        format them as a compact, labelled text block for the LLM prompt.
+
+        Computed indicators:
+          SMA5, SMA20  — simple moving averages of closing prices
+          Volume ratio — today's volume vs 5-day average
+          5-day return — price change over the available window
+          5-day range position — where current price sits in the 5d high-low range
+          Intraday range position — (current − day_low) / (day_high − day_low)
+        """
+        if not ohlcv:
+            quote_src = quote.get("source", "?")
+            return f"  No OHLCV data available — relying on intraday quote only (source: {quote_src})."
+
+        closes  = [float(b["close"])  for b in ohlcv if b.get("close")]
+        volumes = [float(b["volume"]) for b in ohlcv if b.get("volume")]
+        highs   = [float(b["high"])   for b in ohlcv if b.get("high")]
+        lows    = [float(b["low"])    for b in ohlcv if b.get("low")]
+
+        current_price = (
+            float(quote.get("last_price") or 0)
+            or (closes[-1] if closes else 0)
+        )
+
+        def _sma(prices: list[float], n: int) -> Optional[float]:
+            if len(prices) < n:
+                return None
+            return round(sum(prices[-n:]) / n, 4)
+
+        def _vs_sma(price: float, sma: Optional[float]) -> str:
+            if sma is None or price == 0:
+                return "N/A"
+            diff_pct = (price - sma) / sma * 100
+            direction = "ABOVE" if diff_pct >= 0 else "BELOW"
+            return f"{sma:.3f} — price is {direction} by {abs(diff_pct):.1f}%"
+
+        sma5  = _sma(closes, 5)
+        sma20 = _sma(closes, 20)
+
+        # Volume ratio: today's vol vs 5d average
+        vol_ratio_str = "N/A"
+        if volumes and len(volumes) >= 2:
+            avg_vol5 = sum(volumes[:-1][-4:]) / len(volumes[:-1][-4:]) if len(volumes) > 1 else None
+            today_vol = volumes[-1]
+            if avg_vol5 and avg_vol5 > 0:
+                ratio = today_vol / avg_vol5
+                label = (
+                    "HIGH — strong conviction"  if ratio >= 2.0 else
+                    "above average"             if ratio >= 1.3 else
+                    "normal"                    if ratio >= 0.7 else
+                    "LOW — weak conviction"
+                )
+                vol_ratio_str = f"{ratio:.1f}× 5d avg ({label})"
+
+        # 5-day return
+        ret_str = "N/A"
+        if len(closes) >= 2 and closes[0] > 0:
+            ret_pct = (closes[-1] - closes[0]) / closes[0] * 100
+            ret_str = f"{ret_pct:+.1f}%"
+
+        # 5-day range position
+        range5_str = "N/A"
+        if highs and lows and current_price:
+            hi5, lo5 = max(highs), min(lows)
+            if hi5 > lo5:
+                pos = (current_price - lo5) / (hi5 - lo5) * 100
+                label = (
+                    "near 5d HIGH — momentum zone"    if pos >= 80 else
+                    "near 5d LOW — potential support"  if pos <= 20 else
+                    f"{pos:.0f}% of 5d range"
+                )
+                range5_str = f"S${lo5:.3f} – S${hi5:.3f} | position: {label}"
+
+        # Intraday range position
+        intraday_str = "N/A"
+        day_high = float(quote.get("high") or 0)
+        day_low  = float(quote.get("low")  or 0)
+        if day_high > day_low > 0 and current_price:
+            ipos = (current_price - day_low) / (day_high - day_low) * 100
+            intraday_str = (
+                f"S${day_low:.3f} – S${day_high:.3f} | "
+                f"current at {ipos:.0f}% of today's range"
+            )
+
+        quote_src  = quote.get("source", "?")
+        quote_live = "LIVE" if "finnhub" in quote_src.lower() else "DELAYED/CACHED"
+
+        lines = [
+            f"  Source        : {quote_src} ({quote_live})",
+            f"  SMA 5-day     : {_vs_sma(current_price, sma5)}",
+            f"  SMA 20-day    : {_vs_sma(current_price, sma20)}"
+            + ("  ← only N/A if <20 bars available" if sma20 is None else ""),
+            f"  Volume Ratio  : {vol_ratio_str}",
+            f"  5d Return     : {ret_str}",
+            f"  5d Price Range: {range5_str}",
+            f"  Intraday Range: {intraday_str}",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_sentiment_summary(
+        news: list[dict[str, Any]],
+        stockgeist: Optional[dict[str, Any]] = None,
+    ) -> str:
+        """
+        Aggregate sentiment scores from all news articles (Marketaux, EODHD
+        provide per-article sentiment floats −1.0 → +1.0) and format alongside
+        the StockGeist real-time score and 24-hour trend.
+        """
+        lines: list[str] = []
+
+        # ── StockGeist real-time + 24h trend ───────────────────────────────
+        sg = stockgeist or {}
+        now = sg.get("now", {})
+        if now:
+            score = now.get("score", 0)
+            label = (
+                "BULLISH"  if score >= 0.3  else
+                "BEARISH"  if score <= -0.3 else
+                "NEUTRAL"
+            )
+            trend = sg.get("trend_24h")
+            trend_str = ""
+            if trend is not None:
+                direction = "↑ rising" if trend > 0.05 else "↓ falling" if trend < -0.05 else "→ flat"
+                trend_str = f" | 24h trend: {direction} (Δ{trend:+.3f})"
+            avg = sg.get("series_avg")
+            avg_str = f" | 24h avg score: {avg:.3f}" if avg is not None else ""
+            lines.append(
+                f"  StockGeist Now : score={score:.3f} ({label})"
+                f" | pos={now.get('pos_count',0)} neg={now.get('neg_count',0)} mentions"
+                f"{trend_str}{avg_str}"
+            )
+        else:
+            lines.append("  StockGeist     : Not enabled / no data")
+
+        # ── Aggregate news sentiment (Marketaux + EODHD scored articles) ──
+        scored = [(n.get("source", "?"), float(n["sentiment"]))
+                  for n in news if n.get("sentiment") is not None]
+
+        if scored:
+            scores  = [s for _, s in scored]
+            avg_s   = sum(scores) / len(scores)
+            pos_n   = sum(1 for s in scores if s >= 0.1)
+            neg_n   = sum(1 for s in scores if s <= -0.1)
+            neu_n   = len(scores) - pos_n - neg_n
+            agg_lbl = (
+                "BULLISH"  if avg_s >= 0.2  else
+                "BEARISH"  if avg_s <= -0.2 else
+                "NEUTRAL"
+            )
+            # Top source by absolute score
+            most_src, most_score = max(scored, key=lambda x: abs(x[1]))
+            direction = "bullish" if most_score > 0 else "bearish"
+            lines.append(
+                f"  News Sentiment : avg={avg_s:+.3f} ({agg_lbl}) from {len(scores)} scored articles"
+            )
+            lines.append(
+                f"  Distribution   : {pos_n} positive | {neu_n} neutral | {neg_n} negative"
+            )
+            lines.append(
+                f"  Strongest signal: {most_src} score={most_score:+.3f} ({direction})"
+            )
+        else:
+            lines.append("  News Sentiment : No scored articles (free scrapers only, no sentiment scores)")
+            lines.append("  Tip: Enable Marketaux or EODHD in config for per-article sentiment data")
+
+        return "\n".join(lines)
 
     @staticmethod
     def _format_fundamentals(fund: Optional[dict[str, Any]]) -> str:

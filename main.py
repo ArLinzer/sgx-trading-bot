@@ -459,23 +459,54 @@ class TradingBot:
         except Exception as exc:
             logger.warning(f"[{ticker}] News fetch failed: {exc}")
 
-        # ── 4. Sentiment (StockGeist if enabled) ─────────────────────────
+        # ── 4. Sentiment — StockGeist snapshot + 24h time series ─────────
+        stockgeist_summary: dict[str, Any] = {}
         try:
-            sentiment = await self.provider_registry.fetch_sentiment(ticker)
-            if sentiment:
+            # Snapshot (score right now)
+            sentiment_snap = await self.provider_registry.fetch_sentiment(ticker)
+            if sentiment_snap:
                 logger.info(
-                    f"[{ticker}] Sentiment → score={sentiment.get('score')} "
-                    f"source={sentiment.get('source')}"
+                    f"[{ticker}] StockGeist snapshot → "
+                    f"score={sentiment_snap.get('score')} | "
+                    f"pos={sentiment_snap.get('pos_count')} neg={sentiment_snap.get('neg_count')}"
                 )
-                # Inject sentiment as a synthetic news item so the LLM sees it
+                stockgeist_summary["now"] = sentiment_snap
+
+                # Inject snapshot as first news item so the LLM sees it
                 news.insert(0, {
-                    "source": sentiment.get("source", "Sentiment"),
-                    "headline": sentiment.get("headline", ""),
-                    "summary": sentiment.get("summary", ""),
-                    "published_at": sentiment.get("published_at", ""),
+                    "source":       sentiment_snap.get("source", "StockGeist"),
+                    "headline":     (
+                        f"[StockGeist] {ticker} social sentiment score: "
+                        f"{sentiment_snap.get('score', 0):.2f} | "
+                        f"pos={sentiment_snap.get('pos_count', 0)} "
+                        f"neg={sentiment_snap.get('neg_count', 0)} mentions"
+                    ),
+                    "summary":      (
+                        f"Real-time StockGeist sentiment for {ticker}. "
+                        f"Total mentions last hour: {sentiment_snap.get('total_count', 0)}."
+                    ),
+                    "published_at": sentiment_snap.get("timestamp", ""),
+                    "sentiment":    sentiment_snap.get("score"),
                 })
-        except Exception:
-            pass
+
+            # 24-hour trend (if StockGeist provider supports it)
+            sg_provider = self.provider_registry.get("stockgeist")
+            if sg_provider and sg_provider.enabled and hasattr(sg_provider, "fetch_sentiment_series"):
+                series = await sg_provider.fetch_sentiment_series(ticker, hours=24, granularity="1h")
+                if series:
+                    scores = [p["score"] for p in series if p.get("score") is not None]
+                    if len(scores) >= 2:
+                        trend = scores[-1] - scores[0]
+                        stockgeist_summary["trend_24h"] = round(trend, 3)
+                        stockgeist_summary["series_avg"] = round(sum(scores) / len(scores), 3)
+                        stockgeist_summary["series_points"] = len(scores)
+                        logger.info(
+                            f"[{ticker}] StockGeist 24h trend: "
+                            f"start={scores[0]:.2f} → end={scores[-1]:.2f} "
+                            f"(Δ={trend:+.2f}) avg={stockgeist_summary['series_avg']:.2f}"
+                        )
+        except Exception as exc:
+            logger.debug(f"[{ticker}] StockGeist fetch failed: {exc}")
 
         # ── 5. Fundamental analysis (yfinance, 24-hour cache) ────────────
         logger.info(f"[{ticker}] Fetching fundamental data (yfinance)…")
@@ -483,7 +514,7 @@ class TradingBot:
         try:
             fundamentals = await self.fundamentals.fetch(ticker)
             if "error" not in fundamentals:
-                qs = fundamentals.get("quality_score")
+                qs  = fundamentals.get("quality_score")
                 val = fundamentals.get("valuation", {})
                 div = fundamentals.get("dividends", {})
                 logger.info(
@@ -502,12 +533,13 @@ class TradingBot:
             fundamentals = {}
 
         # ── 6. Data summary before LLM call ──────────────────────────────
+        scored_news = [a for a in news if a.get("sentiment") is not None]
         logger.info(
             f"[{ticker}] Data ready → "
             f"ohlcv={len(kline)} bars | "
             f"quote={quote_data.get('source','?')} | "
-            f"order_book=none | "
-            f"news={len(news)} articles | "
+            f"news={len(news)} articles ({len(scored_news)} with sentiment scores) | "
+            f"stockgeist={'yes' if stockgeist_summary else 'no'} | "
             f"fundamentals={'yes' if fundamentals else 'no'}"
         )
 
@@ -519,15 +551,16 @@ class TradingBot:
             if vols:
                 vol_info["avg_volume_20d"] = sum(vols) / len(vols)
 
-        # ── 8. LLM Call B — generate signal (with fundamentals) ───────────
+        # ── 8. LLM Call B — generate signal (all data sources) ────────────
         signal = await self.analyst.analyse_stock(
             ticker=ticker,
             name=name,
             ohlcv=kline,
             quote=quote_data,
-            order_book={},   # no order book without Moomoo L2
+            order_book={},
             news=news,
             fundamentals=fundamentals,
+            stockgeist=stockgeist_summary,
         )
         return signal, vol_info
 
