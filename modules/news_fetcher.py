@@ -146,8 +146,24 @@ class NewsFetcher:
         cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=MAX_AGE_HOURS)
         recent = [a for a in all_articles if self._is_recent(a, cutoff)]
 
+        # ── Relevance filter — remove off-topic articles ──────────────────
+        # SGX Announcements and Yahoo Finance are already ticker-specific; every
+        # other source (Google News, BT search/RSS, ST, API providers) can return
+        # general-market articles.  Keep an article only when its headline+summary
+        # contains at least one identifier for this stock.
+        relevant = [
+            a for a in recent
+            if self._is_relevant_to_stock(a, ticker, name)
+        ]
+        dropped = len(recent) - len(relevant)
+        if dropped:
+            logger.info(
+                f"[{ticker}] Relevance filter dropped {dropped} off-topic articles "
+                f"({len(relevant)} remain)"
+            )
+
         # ── Deduplicate by headline similarity ───────────────────────────
-        deduped = self._deduplicate(recent)
+        deduped = self._deduplicate(relevant)
 
         # ── Sort newest-first ─────────────────────────────────────────────
         deduped.sort(key=lambda x: x.get("published_at") or "", reverse=True)
@@ -161,7 +177,7 @@ class NewsFetcher:
 
         logger.info(
             f"[{ticker}] News: {len(all_articles)} raw → "
-            f"{len(recent)} recent → {len(deduped)} after dedup"
+            f"{len(recent)} recent → {len(relevant)} relevant → {len(deduped)} after dedup"
             + (f" | {breakdown}" if breakdown else "")
         )
         return deduped
@@ -483,6 +499,61 @@ class NewsFetcher:
                 "published_at": published_at,
             })
         return articles
+
+    # ------------------------------------------------------------------
+    # Stock-relevance filter
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_relevant_to_stock(
+        article: dict[str, Any],
+        ticker: str,
+        name: str,
+    ) -> bool:
+        """
+        Return True if the article is likely about this specific stock.
+
+        Sources that are already ticker-specific (SGX Announcements, Yahoo
+        Finance, StockGeist) are always passed through.  For all other sources
+        we match against:
+          1. The bare ticker code (e.g. "D05")
+          2. Strong abbreviations from the company name (all-caps ≥3 chars,
+             e.g. "DBS", "OCBC", "SIA")
+          3. Context keywords (meaningful words ≥5 chars, not corporate
+             stop-words) — ALL must match when there are ≥2 of them
+
+        This prevents generic Straits Times / Google News / Business Times
+        articles from reaching the LLM prompt.
+        """
+        # Always pass ticker-specific sources
+        source = (article.get("source") or "").lower()
+        if any(s in source for s in ("sgx announcements", "yahoo finance", "stockgeist")):
+            return True
+
+        text = (
+            (article.get("headline") or "") + " " +
+            (article.get("summary")  or "")
+        ).lower()
+
+        # 1. Bare ticker match (word-boundary)
+        if re.search(rf"\b{re.escape(ticker.lower())}\b", text):
+            return True
+
+        # 2 & 3. Name-derived keywords (reuse existing BT RSS logic)
+        strong, context = NewsFetcher._bt_rss_keywords(ticker, name)
+
+        if any(sid in text for sid in strong):
+            return True
+
+        if context:
+            if len(context) >= 2:
+                if all(kw in text for kw in context):
+                    return True
+            else:
+                if context[0] in text:
+                    return True
+
+        return False
 
     # ------------------------------------------------------------------
     # Deduplication

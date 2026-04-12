@@ -180,7 +180,15 @@ Example:
 IMPORTANT: Output ONLY the JSON array. No other text."""
 
 
-STRATEGY_PROMPT_TEMPLATE = """You are a day trading analyst. Analyse ALL of the following data for {ticker} ({name}) and generate a trading signal.
+STRATEGY_PROMPT_TEMPLATE = """You are a day trading analyst specialising in SGX (Singapore Exchange) stocks.
+
+╔══════════════════════════════════════════════════════╗
+║  STOCK BEING ANALYSED:  {ticker}  —  {name}          ║
+║  Exchange: SGX (Singapore)  |  Currency: SGD         ║
+╚══════════════════════════════════════════════════════╝
+
+Your task: synthesise ALL six data sections below into ONE trading signal for {ticker} ({name}).
+Every number, price level, and recommendation you output MUST be for {ticker} ONLY.
 
 ━━━ 1. PRICE & VOLUME — OHLCV (last 5 days, oldest → newest) ━━━
 {ohlcv_json}
@@ -226,7 +234,10 @@ Trading constraints:
 - SGX market hours: 09:00–17:00 SGT (lunch break 12:00–14:00)
 - Singapore dollars (SGD)
 
-Task: Synthesise ALL six data sources above into ONE trading signal.
+REMINDER: You are generating a signal for {ticker} ({name}) ONLY.
+If any news headline is clearly unrelated to {ticker} or {name}, ignore it entirely.
+
+Task: Synthesise ALL six data sources above into ONE trading signal for {ticker}.
 Return ONLY a JSON object with exactly these keys:
   "ticker"          : string  — SGX stock code
   "action"          : string  — one of "BUY", "SELL", "HOLD", "WATCH"
