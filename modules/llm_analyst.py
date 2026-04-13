@@ -482,6 +482,14 @@ class LLMAnalyst:
                   else "web search DISABLED (install duckduckgo-search)")
         )
 
+        # Defined once; reused across all model attempts and tool rounds.
+        async def _heartbeat() -> None:
+            tick = 0
+            while True:
+                await asyncio.sleep(5)
+                tick += 5
+                logger.info(f"{tag} ... still waiting ({tick}s elapsed) ...")
+
         for model in models_to_try:
             logger.info(f"{tag} {sep}")
             logger.info(f"{tag} Model     : {model}")
@@ -494,110 +502,122 @@ class LLMAnalyst:
             logger.info(f"{prompt}")
             logger.info(f"{tag} {sep}")
 
-            # Build the initial message history
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": prompt},
-            ]
+            # Per-model tool list — may be cleared to [] when a model returns
+            # HTTP 400 "does not support tools", so we retry without tools
+            # rather than giving up and falling back to the next model.
+            call_tools: list = list(active_tools)
+            model_failed = False
 
-            t0 = time.monotonic()
-            round_num = 0
+            while not model_failed:
+                # Reset conversation state for each attempt (fresh or tool-retry)
+                messages: list[dict[str, Any]] = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user",   "content": prompt},
+                ]
+                t0 = time.monotonic()
+                round_num = 0
 
-            # Defined once per model attempt; restarted each tool round.
-            async def _heartbeat() -> None:
-                tick = 0
-                while True:
-                    await asyncio.sleep(5)
-                    tick += 5
-                    logger.info(f"{tag} ... still waiting ({tick}s elapsed) ...")
+                try:
+                    while round_num <= MAX_TOOL_ROUNDS:
+                        round_num += 1
+                        logger.info(f"{tag} Sending to Ollama (round {round_num}/{MAX_TOOL_ROUNDS}) ...")
 
-            try:
-                while round_num <= MAX_TOOL_ROUNDS:
-                    round_num += 1
-                    logger.info(f"{tag} Sending to Ollama (round {round_num}/{MAX_TOOL_ROUNDS}) ...")
+                        heartbeat = asyncio.create_task(_heartbeat())
+                        try:
+                            response = await asyncio.get_running_loop().run_in_executor(
+                                None,
+                                lambda m=model, msgs=messages, tls=call_tools, tk=think: _ollama.chat(
+                                    model=m,
+                                    messages=msgs,
+                                    tools=tls,
+                                    options={"temperature": 0.1},
+                                    think=tk,
+                                ),
+                            )
+                        finally:
+                            heartbeat.cancel()
 
-                    heartbeat = asyncio.create_task(_heartbeat())
-                    try:
-                        response = await asyncio.get_running_loop().run_in_executor(
-                            None,
-                            lambda m=model, msgs=messages, tls=active_tools, tk=think: _ollama.chat(
-                                model=m,
-                                messages=msgs,
-                                tools=tls,
-                                options={"temperature": 0.1},
-                                think=tk,
-                            ),
-                        )
-                    finally:
-                        heartbeat.cancel()
+                        elapsed = time.monotonic() - t0
 
-                    elapsed = time.monotonic() - t0
+                        # ollama SDK returns a ChatResponse with a Message object
+                        msg = response.message
 
-                    # ── Unpack the SDK response object ──────────────────
-                    # ollama SDK returns a ChatResponse with a Message object,
-                    # NOT a plain dict — use attribute access throughout.
-                    msg = response.message  # Message object
+                        thinking: str = getattr(msg, "thinking", "") or ""
+                        content:  str = getattr(msg, "content",  "") or ""
+                        # Strip any leaked <think> tags (DeepSeek R1 style)
+                        content = re.sub(r"<think>[\s\S]*?</think>", "", content, flags=re.IGNORECASE).strip()
 
-                    # thinking is a separate attribute (qwen3 chain-of-thought)
-                    thinking: str = getattr(msg, "thinking", "") or ""
-                    content:  str = getattr(msg, "content",  "") or ""
-                    # Fallback: strip any leaked <think> tags from content
-                    content = re.sub(r"<think>[\s\S]*?</think>", "", content, flags=re.IGNORECASE).strip()
+                        raw_tool_calls = getattr(msg, "tool_calls", None) or []
 
-                    # tool_calls is a list of ToolCall objects (or None)
-                    raw_tool_calls = getattr(msg, "tool_calls", None) or []
+                        if thinking:
+                            logger.info(f"{tag} 🧠 THINKING ({len(thinking)} chars) ↓")
+                            logger.info(f"{thinking}")
+                            logger.info(f"{tag} 🧠 END THINKING")
 
-                    if thinking:
-                        logger.info(f"{tag} 🧠 THINKING ({len(thinking)} chars) ↓")
-                        logger.info(f"{thinking}")
-                        logger.info(f"{tag} 🧠 END THINKING")
+                        # ── Tool call branch ────────────────────────────
+                        if raw_tool_calls:
+                            logger.info(f"{tag} {sep}")
+                            logger.info(f"{tag} Model requested {len(raw_tool_calls)} tool call(s) at {elapsed:.1f}s:")
+                            messages.append({"role": "assistant", "content": content})
 
-                    # ── Tool call branch ────────────────────────────────
-                    if raw_tool_calls:
+                            for tc in raw_tool_calls:
+                                fn_obj = getattr(tc, "function", tc)
+                                name   = getattr(fn_obj, "name", "") or (tc.get("name", "") if isinstance(tc, dict) else "")
+                                args   = getattr(fn_obj, "arguments", {}) or (tc.get("arguments", {}) if isinstance(tc, dict) else {})
+                                if isinstance(args, str):
+                                    try:
+                                        args = json.loads(args)
+                                    except json.JSONDecodeError:
+                                        args = {}
+
+                                logger.info(f"{tag}   → Tool: {name}({args})")
+                                result = await execute_tool(name, args)
+                                logger.info(f"{tag}   ← Result ({len(result)} chars):")
+                                logger.info(f"{result[:600]}{'...' if len(result) > 600 else ''}")
+
+                                messages.append({"role": "tool", "name": name, "content": result})
+
+                            logger.info(f"{tag} Continuing agentic loop with tool results ...")
+                            continue
+
+                        # ── Final answer ────────────────────────────────
+                        self._active_model = model
                         logger.info(f"{tag} {sep}")
-                        logger.info(f"{tag} Model requested {len(raw_tool_calls)} tool call(s) at {elapsed:.1f}s:")
-                        messages.append({"role": "assistant", "content": content})
+                        if content:
+                            logger.info(
+                                f"{tag} OLLAMA FINAL RESPONSE ↓  "
+                                f"(elapsed={elapsed:.1f}s | {len(content)} chars | "
+                                f"{round_num} round(s) | tools={'yes' if call_tools else 'no'})"
+                            )
+                            logger.info(f"{content}")
+                        else:
+                            logger.warning(
+                                f"{tag} OLLAMA returned empty content after {elapsed:.1f}s "
+                                f"— thinking={len(thinking)} chars"
+                            )
+                        logger.info(f"{tag} {sep}")
+                        return content
 
-                        for tc in raw_tool_calls:
-                            # ToolCall object: tc.function.name / tc.function.arguments
-                            fn_obj = getattr(tc, "function", tc)
-                            name   = getattr(fn_obj, "name", "") or (tc.get("name", "") if isinstance(tc, dict) else "")
-                            args   = getattr(fn_obj, "arguments", {}) or (tc.get("arguments", {}) if isinstance(tc, dict) else {})
-                            if isinstance(args, str):
-                                try:
-                                    args = json.loads(args)
-                                except json.JSONDecodeError:
-                                    args = {}
-
-                            logger.info(f"{tag}   → Tool: {name}({args})")
-                            result = await execute_tool(name, args)
-                            logger.info(f"{tag}   ← Result ({len(result)} chars):")
-                            logger.info(f"{result[:600]}{'...' if len(result) > 600 else ''}")
-
-                            messages.append({"role": "tool", "name": name, "content": result})
-
-                        logger.info(f"{tag} Continuing agentic loop with tool results ...")
-                        continue
-
-                    # ── Final answer branch ─────────────────────────────
-                    self._active_model = model
-                    logger.info(f"{tag} {sep}")
-                    if content:
-                        logger.info(f"{tag} OLLAMA FINAL RESPONSE ↓  (elapsed={elapsed:.1f}s | {len(content)} chars | {round_num} round(s))")
-                        logger.info(f"{content}")
-                    else:
-                        logger.warning(f"{tag} OLLAMA returned empty content after {elapsed:.1f}s — thinking={len(thinking)} chars")
-                    logger.info(f"{tag} {sep}")
+                    logger.warning(f"{tag} Reached max tool rounds ({MAX_TOOL_ROUNDS}) — returning last content")
                     return content
 
-                logger.warning(f"{tag} Reached max tool rounds ({MAX_TOOL_ROUNDS}) — returning last content")
-                return content
-
-            except Exception as exc:
-                elapsed = time.monotonic() - t0
-                logger.warning(f"{tag} Model '{model}' failed after {elapsed:.1f}s: {exc}")
-                if model != models_to_try[-1]:
-                    logger.info(f"{tag} Trying next fallback model...")
+                except Exception as exc:
+                    elapsed = time.monotonic() - t0
+                    exc_str = str(exc).lower()
+                    # Some models (e.g. deepseek-r1) return HTTP 400 when tools are
+                    # passed.  Retry the same model without tools before giving up.
+                    if call_tools and "does not support tools" in exc_str:
+                        logger.warning(
+                            f"{tag} '{model}' does not support tool calling "
+                            f"— retrying without tools (web search disabled for this call)"
+                        )
+                        call_tools = []
+                        # model_failed stays False → loop retries same model
+                    else:
+                        logger.warning(f"{tag} Model '{model}' failed after {elapsed:.1f}s: {exc}")
+                        if model != models_to_try[-1]:
+                            logger.info(f"{tag} Trying next fallback model...")
+                        model_failed = True  # exit while loop → advance for loop
 
         logger.error(f"{tag} All models exhausted — no LLM response")
         return ""
